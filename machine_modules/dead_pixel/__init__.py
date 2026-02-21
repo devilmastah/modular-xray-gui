@@ -10,7 +10,7 @@ MODULE_INFO = {
     "display_name": "Dead pixel correction",
     "description": "Interpolate dead vertical/horizontal lines. Applies on next startup.",
     "type": "alteration",
-    "default_enabled": True,
+    "default_enabled": False,  # Off by default; bad_pixel_map is preferred and they can conflict
     "pipeline_slot": 400,
 }
 MODULE_NAME = "dead_pixel"
