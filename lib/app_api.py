@@ -7,6 +7,7 @@ Use gui.api.xxx() instead of gui.xxx so the contract is explicit and stable.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 import numpy as np
 
@@ -138,6 +139,18 @@ class AppAPI:
     def save_flat_field(self) -> None:
         """Persist current flat to disk (call after set_flat_field)."""
         self._gui._save_flat_field()
+
+    def get_camera_module_name(self) -> Optional[str]:
+        """Current camera module name (e.g. 'asi_camera', 'hamamatsu_c7942') for darks/flats/bad-pixel-map paths. None if none selected."""
+        return getattr(self._gui, "camera_module_name", None)
+
+    def get_dark_dir(self) -> Path:
+        """Base directory for darks (and bad pixel map .npy) for the current camera. Subfolder under app darks/."""
+        return self._gui.get_dark_dir()
+
+    def get_pixelmaps_dir(self) -> Path:
+        """Base directory for pixel map TIFFs (review) for the current camera. Subfolder under app pixelmaps/."""
+        return self._gui.get_pixelmaps_dir()
 
     def trigger_dark_flat_reload(self) -> None:
         """Reload dark/flat nearest match and update status (e.g. after ROI or gain change)."""
@@ -335,6 +348,18 @@ class AppAPI:
     def paint_frame_to_display(self, frame: np.ndarray) -> None:
         """Paint a frame to the texture (e.g. after deconvolution)."""
         self._gui._paint_texture_from_frame(frame)
+
+    def show_preview_in_main_view(self, frame: np.ndarray) -> None:
+        """
+        Show a short preview in the main view: frame is scaled to fit the window (max size that fits, aspect preserved).
+        New frames will not overwrite the preview until clear_main_view_preview() is called.
+        Use for e.g. bad pixel map preview while adjusting sliders.
+        """
+        self._gui._paint_preview_to_main_view(frame)
+
+    def clear_main_view_preview(self) -> None:
+        """Leave main-view preview mode and restore the normal display (live/raw/deconvolved)."""
+        self._gui._clear_main_view_preview()
 
     def refresh_display(self) -> None:
         """Force display refresh."""

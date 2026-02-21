@@ -154,6 +154,8 @@ All modules should use `**gui.api**` (defined in `**app_api.py**`) for every ope
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | `**get_current_display_frame()**`                                  | Current frame shown in the display (for “Apply to frame”).                             |
 | `**paint_frame_to_display(frame)**`                                | Paint a frame to the texture (e.g. after deconvolution).                               |
+| `**show_preview_in_main_view(frame)**`                             | Show a short preview in the main window: frame is scaled to fit (aspect preserved). New frames do not overwrite until **clear_main_view_preview()**. Use e.g. for bad-pixel map preview while adjusting sliders. |
+| `**clear_main_view_preview()**`                                    | Leave preview mode and restore the normal display (live/raw/deconvolved).             |
 | `**refresh_display()**`                                            | Force display refresh.                                                                 |
 | `**set_display_mode(mode)**`                                       | `'live'`, `'raw'`, `'deconvolved'`, etc.                                               |
 | `**get_deconv_sigma()**` / `**get_deconv_iterations()**`           | Deconvolution parameters.                                                              |

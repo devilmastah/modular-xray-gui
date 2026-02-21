@@ -109,6 +109,7 @@ Modules that do **not** implement this contract (e.g. Faxitron, which only does 
 |--------|------|-----|
 | **dark_correction** | Alteration (slot 100) | [dark_correction/README.md](dark_correction/README.md) |
 | **flat_correction** | Alteration (slot 200) | [flat_correction/README.md](flat_correction/README.md) |
+| **bad_pixel_map** | Alteration (slot 250) | [bad_pixel_map/README.md](bad_pixel_map/README.md) |
 | **banding** | Alteration (slot 300) | [banding/README.md](banding/README.md) |
 | **dead_pixel** | Alteration (slot 400) | [dead_pixel/README.md](dead_pixel/README.md) |
 | **pincushion** | Alteration (slot 450) | [pincushion/README.md](pincushion/README.md) |

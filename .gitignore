@@ -27,6 +27,8 @@ flats/*
 !flats/.gitkeep
 captures/*
 !captures/.gitkeep
+pixelmaps/*
+!pixelmaps/.gitkeep
 
 # User-specific settings
 settings.json

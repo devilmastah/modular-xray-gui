@@ -33,9 +33,10 @@ from machine_modules.registry import discover_modules, all_extra_settings_keys
 # Default frame size when no camera module loaded; camera module can override in _build_ui
 DEFAULT_FRAME_W = 2400
 DEFAULT_FRAME_H = 2400
-# Master darks saved in app/darks/, flats in app/flats/
+# Master darks saved in app/darks/, flats in app/flats/, bad pixel maps (TIFF review) in app/pixelmaps/
 DARK_DIR = pathlib.Path(__file__).resolve().parent / "darks"
 FLAT_DIR = pathlib.Path(__file__).resolve().parent / "flats"
+PIXELMAPS_DIR = pathlib.Path(__file__).resolve().parent / "pixelmaps"
 LAST_CAPTURED_DARK_NAME = "last_captured_dark.npy"
 LAST_CAPTURED_FLAT_NAME = "last_captured_flat.npy"
 INTEGRATION_CHOICES = ["0.5 s", "1 s", "2 s", "5 s", "10 s", "15 s", "20 s"]
@@ -52,6 +53,10 @@ def _dark_dir(camera_name):
 def _flat_dir(camera_name):
     """Base directory for flats for this camera."""
     return FLAT_DIR / (camera_name or "default")
+
+def _pixelmaps_dir(camera_name):
+    """Base directory for pixel maps (TIFF review images) for this camera."""
+    return PIXELMAPS_DIR / (camera_name or "default")
 
 def _dark_path(integration_time_seconds: float, gain: int, width: int, height: int, camera_name) -> pathlib.Path:
     """Path for a specific dark file: darks/<camera>/dark_{time}_{gain}_{width}x{height}.npy"""
@@ -178,6 +183,9 @@ class XrayGUI:
         self._flat_loaded_time_gain = None
         self._flat_nearest_time_gain = None
 
+        # Bad pixel map (built from dark+flat by bad_pixel_map module; 2D bool mask or None)
+        self.bad_pixel_map_mask = None
+
         # Banding correction
         self.banding_enabled = True
         self.banding_black_w = DEFAULT_BLACK_W
@@ -242,7 +250,9 @@ class XrayGUI:
 
         # DPG ids (assigned in _build_ui)
         self._texture_id = None
-        
+        # Main view short preview: when True, display is not overwritten by new frames until clear_main_view_preview()
+        self._main_view_preview_active = False
+
         # Image viewport (zoom and pan) - will be initialized after UI is built
         self.image_viewport = None
 
@@ -558,6 +568,14 @@ class XrayGUI:
         if dpg.does_item_exist("flat_status"):
             dpg.set_value("flat_status", self._flat_status_text())
         self._update_alteration_dark_flat_status()
+
+    def get_dark_dir(self):
+        """Base directory for darks (and bad pixel map .npy) for the current camera. For use by api.get_dark_dir()."""
+        return _dark_dir(self.camera_module_name)
+
+    def get_pixelmaps_dir(self):
+        """Base directory for pixel map TIFFs (review) for the current camera. For use by api.get_pixelmaps_dir()."""
+        return _pixelmaps_dir(self.camera_module_name)
 
     def _dark_status_text(self):
         """Short status for dark: Loaded (Xs @ Y), None (nearest too far), or None."""
@@ -985,6 +1003,53 @@ class XrayGUI:
         rgba[:, :, 3] = 1.0
         return rgba.ravel(), disp_w, disp_h
 
+    def _scale_frame_to_fit(self, frame: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
+        """Scale frame to fit inside target_w x target_h (preserve aspect, letterbox). Return float32 (target_h, target_w) in 0–1."""
+        if target_w <= 0 or target_h <= 0:
+            return np.zeros((target_h, target_w), dtype=np.float32)
+        arr = np.asarray(frame, dtype=np.float32)
+        h, w = arr.shape[0], arr.shape[1]
+        if h <= 0 or w <= 0:
+            return np.zeros((target_h, target_w), dtype=np.float32)
+        scale = min(target_w / w, target_h / h)
+        out_w = max(1, int(round(w * scale)))
+        out_h = max(1, int(round(h * scale)))
+        yi = np.linspace(0, h - 1, out_h).astype(np.int32)
+        xi = np.linspace(0, w - 1, out_w).astype(np.int32)
+        small = arr[np.ix_(yi, xi)]
+        canvas = np.zeros((target_h, target_w), dtype=np.float32)
+        y0 = (target_h - out_h) // 2
+        x0 = (target_w - out_w) // 2
+        canvas[y0:y0 + out_h, x0:x0 + out_w] = small
+        lo, hi = float(np.min(canvas)), float(np.max(canvas))
+        if hi > lo:
+            canvas = (canvas - lo) / (hi - lo)
+        else:
+            canvas[:] = 0.5
+        return np.clip(canvas, 0.0, 1.0).astype(np.float32)
+
+    def _paint_preview_to_main_view(self, frame: np.ndarray) -> None:
+        """Paint a frame to the main view, scaled to fit. Sets preview mode so new frames do not overwrite until clear."""
+        disp_w = getattr(self, "_disp_w", 0)
+        disp_h = getattr(self, "_disp_h", 0)
+        if disp_w <= 0 or disp_h <= 0 or self._texture_id is None:
+            return
+        scaled = self._scale_frame_to_fit(frame, disp_w, disp_h)
+        rgba = np.empty((disp_h, disp_w, 4), dtype=np.float32)
+        rgba[:, :, 0] = scaled
+        rgba[:, :, 1] = scaled
+        rgba[:, :, 2] = scaled
+        rgba[:, :, 3] = 1.0
+        dpg.set_value(self._texture_id, rgba.ravel().tolist())
+        self._main_view_preview_active = True
+        self._force_image_refresh()
+
+    def _clear_main_view_preview(self) -> None:
+        """Leave preview mode and repaint the normal display (live/raw/deconvolved)."""
+        self._main_view_preview_active = False
+        self._refresh_texture_from_settings()
+        self._force_image_refresh()
+
     @staticmethod
     def _histogram_equalize(img):
         flat = img.flatten()
@@ -1006,6 +1071,8 @@ class XrayGUI:
 
     def _update_display(self):
         """Called from main thread when new_frame_ready is set. Only updates texture when showing live."""
+        if self._main_view_preview_active:
+            return
         if self._display_mode != "live":
             return
         with self.frame_lock:
@@ -1525,6 +1592,8 @@ class XrayGUI:
         self._disp_w = self.frame_width // self.disp_scale
         self._disp_h = self.frame_height // self.disp_scale
         self._aspect = self.frame_width / self.frame_height
+        # Bad pixel map is per resolution; clear so module can load/build for current size
+        self.bad_pixel_map_mask = None
 
         # Build image alteration pipeline (slot, process_frame) and distortion-only sublist for live preview
         alteration_modules = [m for m in self._discovered_modules if m.get("type") == "alteration" and self._module_enabled.get(m["name"], False)]
