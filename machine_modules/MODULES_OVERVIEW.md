@@ -126,6 +126,7 @@ Modules that do **not** implement this contract (e.g. Faxitron, which only does 
 | **hamamatsu_dc5** (C9730DK-11 / C9732) | Camera | [hamamatsu_dc5/README.md](hamamatsu_dc5/README.md) |
 | **open_image** | Camera | [open_image/README.md](open_image/README.md) |
 | **faxitron** | Machine | [faxitron/README.md](faxitron/README.md) |
+| **faxitron_mx20_dx50** | Machine (optional beam_supply) | [faxitron_mx20_dx50/README.md](faxitron_mx20_dx50/README.md) |
 | **esp_hv_supply** | Machine (optional beam_supply) | [esp_hv_supply/README.md](esp_hv_supply/README.md) |
 | **example_supply** | Machine (optional beam_supply) | [example_supply/README.md](example_supply/README.md) |
 | **example_arduino_powersupply** | Machine (optional beam_supply) | [example_arduino_powersupply/README.md](example_arduino_powersupply/README.md) |

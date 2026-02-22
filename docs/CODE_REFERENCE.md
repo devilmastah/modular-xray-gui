@@ -75,6 +75,7 @@ All modules should use `**gui.api**` (defined in `**app_api.py**`) for every ope
 | `**get_integration_time_seconds()**`                                        | Exposure/integration time (seconds).                                                   |
 | `**get_integration_frame_count()**`                                         | Number of frames to stack (Capture N).                                                 |
 | `**get_dark_capture_stack_count()**` / `**get_flat_capture_stack_count()**` | Frames to average for dark/flat capture.                                               |
+| `**get_camera_uses_dual_shot_for_capture_n()**`                             | `True` if the active camera does 2 exposures per frame in capture_n (e.g. C7942). Dark/flat modules use this to double the capture timeout. |
 | `**set_acquisition_idle()**`                                                | Call when your acquisition worker has finished (sets mode idle, clears progress).      |
 | `**set_acquisition_thread(thread)**`                                        | Set the current acquisition thread (app joins on exit).                                |
 | `**clear_acquisition_stop_flag()**`                                         | Clear stop event before starting acquisition.                                          |
@@ -154,7 +155,7 @@ All modules should use `**gui.api**` (defined in `**app_api.py**`) for every ope
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | `**get_current_display_frame()**`                                  | Current frame shown in the display (for “Apply to frame”).                             |
 | `**paint_frame_to_display(frame)**`                                | Paint a frame to the texture (e.g. after deconvolution).                               |
-| `**show_preview_in_main_view(frame)**`                             | Show a short preview in the main window: frame is scaled to fit (aspect preserved). New frames do not overwrite until **clear_main_view_preview()**. Use e.g. for bad-pixel map preview while adjusting sliders. |
+| `**show_preview_in_main_view(frame, use_histogram=True)**`         | Show a preview in the main window. **use_histogram=True**: apply windowing/histogram/hist eq. **False**: raw (scale to fit, frame min/max); use for masks to avoid washed-out look. New frames do not overwrite until **clear_main_view_preview()**. |
 | `**clear_main_view_preview()**`                                    | Leave preview mode and restore the normal display (live/raw/deconvolved).             |
 | `**refresh_display()**`                                            | Force display refresh.                                                                 |
 | `**set_display_mode(mode)**`                                       | `'live'`, `'raw'`, `'deconvolved'`, etc.                                               |

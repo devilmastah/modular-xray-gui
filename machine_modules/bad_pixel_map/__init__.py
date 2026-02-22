@@ -35,6 +35,7 @@ def get_setting_keys():
         "bad_pixel_map_flat_thresh",
         "bad_pixel_map_dark_thresh",
         "bad_pixel_map_auto_correct",
+        "bad_pixel_map_use_histogram_preview",
     ]
 
 
@@ -43,6 +44,7 @@ def get_default_settings():
         "bad_pixel_map_flat_thresh": DEFAULT_FLAT_THRESH,
         "bad_pixel_map_dark_thresh": DEFAULT_DARK_THRESH,
         "bad_pixel_map_auto_correct": True,
+        "bad_pixel_map_use_histogram_preview": False,
     }
 
 
@@ -64,6 +66,10 @@ def get_settings_for_save(gui=None):
         out["bad_pixel_map_auto_correct"] = bool(dpg.get_value("bad_pixel_map_auto_correct"))
     else:
         out["bad_pixel_map_auto_correct"] = getattr(gui, "bad_pixel_map_auto_correct", True)
+    if dpg.does_item_exist("bad_pixel_map_use_histogram_preview"):
+        out["bad_pixel_map_use_histogram_preview"] = bool(dpg.get_value("bad_pixel_map_use_histogram_preview"))
+    else:
+        out["bad_pixel_map_use_histogram_preview"] = getattr(gui, "bad_pixel_map_use_histogram_preview", False)
     return out
 
 
@@ -78,12 +84,12 @@ def _build_mask_from_dark_flat(dark: np.ndarray, flat: np.ndarray, flat_thresh: 
         return np.zeros_like(flat, dtype=bool)
     cold = np.zeros_like(flat, dtype=bool)
     if flat_thresh > 0:
-        pct_flat = min(5.0, max(0.001, flat_thresh * 100.0))  # cap at 5% so old 0.25 doesn't mark 25%
+        pct_flat = min(50.0, max(0.0, flat_thresh * 100.0))
         cold_thresh = np.percentile(flat, pct_flat)
         cold = flat <= cold_thresh
     hot = np.zeros_like(dark, dtype=bool)
     if dark_thresh > 0:
-        pct_dark = min(5.0, max(0.001, dark_thresh * 100.0))
+        pct_dark = min(50.0, max(0.0, dark_thresh * 100.0))
         hot_thresh = np.percentile(dark, 100.0 - pct_dark)
         hot = dark >= hot_thresh
     mask = cold | hot
@@ -99,8 +105,8 @@ def _get_current_mask_for_preview(gui):
     if dark is not None and flat is not None and dark.shape == flat.shape:
         flat_t = float(dpg.get_value("bad_pixel_map_flat_thresh")) if dpg.does_item_exist("bad_pixel_map_flat_thresh") else getattr(gui, "bad_pixel_map_flat_thresh", DEFAULT_FLAT_THRESH)
         dark_t = float(dpg.get_value("bad_pixel_map_dark_thresh")) if dpg.does_item_exist("bad_pixel_map_dark_thresh") else getattr(gui, "bad_pixel_map_dark_thresh", DEFAULT_DARK_THRESH)
-        flat_t = min(0.05, max(0.001, flat_t))
-        dark_t = min(0.05, max(0.001, dark_t))
+        flat_t = min(0.5, max(0.0, flat_t))
+        dark_t = min(0.5, max(0.0, dark_t))
         mask = _build_mask_from_dark_flat(dark, flat, flat_t, dark_t)
         if mask is not None:
             return mask.astype(np.float32)
@@ -111,12 +117,18 @@ def _get_current_mask_for_preview(gui):
 
 
 def _update_main_view_preview(gui) -> None:
-    """If 'Show pixel map preview' is on, paint current mask to main window (scaled to fit)."""
+    """If 'Show pixel map preview' is on, paint current mask to main window."""
+    import dearpygui.dearpygui as dpg
     if not getattr(gui, "bad_pixel_map_show_in_main_view", False):
         return
     mask = _get_current_mask_for_preview(gui)
     if mask is not None:
-        gui.api.show_preview_in_main_view(mask)
+        use_hist = (
+            dpg.get_value("bad_pixel_map_use_histogram_preview")
+            if dpg.does_item_exist("bad_pixel_map_use_histogram_preview")
+            else getattr(gui, "bad_pixel_map_use_histogram_preview", False)
+        )
+        gui.api.show_preview_in_main_view(mask, use_histogram=use_hist)
 
 
 def _map_path(api) -> Path:
@@ -184,14 +196,15 @@ def build_ui(gui, parent_tag: str = "control_panel") -> None:
     loaded = api.get_loaded_settings()
     flat_thresh = float(loaded.get("bad_pixel_map_flat_thresh", DEFAULT_FLAT_THRESH))
     dark_thresh = float(loaded.get("bad_pixel_map_dark_thresh", DEFAULT_DARK_THRESH))
-    flat_thresh = min(0.05, max(0.001, flat_thresh))
-    dark_thresh = min(0.05, max(0.001, dark_thresh))
+    flat_thresh = min(0.5, max(0.0, flat_thresh))
+    dark_thresh = min(0.5, max(0.0, dark_thresh))
     auto_correct = bool(loaded.get("bad_pixel_map_auto_correct", True))
     gui.bad_pixel_map_flat_thresh = flat_thresh
     gui.bad_pixel_map_dark_thresh = dark_thresh
     gui.bad_pixel_map_auto_correct = auto_correct
     gui._bad_pixel_map_raw_frame = None  # snapshot for manual Revert
     gui.bad_pixel_map_show_in_main_view = False  # when True, preview mask in main window
+    gui.bad_pixel_map_use_histogram_preview = bool(loaded.get("bad_pixel_map_use_histogram_preview", False))
 
     def _status():
         mask = getattr(gui, "bad_pixel_map_mask", None)
@@ -206,6 +219,19 @@ def build_ui(gui, parent_tag: str = "control_panel") -> None:
 
     def _apply_dark_thresh(sender=None, app_data=None):
         gui.bad_pixel_map_dark_thresh = float(dpg.get_value("bad_pixel_map_dark_thresh"))
+        api.save_settings()
+        _update_main_view_preview(gui)
+
+    def _step_slider(tag: str, delta: float):
+        if not dpg.does_item_exist(tag):
+            return
+        v = float(dpg.get_value(tag)) + delta
+        v = max(0.0, min(0.5, round(v, 3)))
+        dpg.set_value(tag, v)
+        if tag == "bad_pixel_map_flat_thresh":
+            gui.bad_pixel_map_flat_thresh = v
+        else:
+            gui.bad_pixel_map_dark_thresh = v
         api.save_settings()
         _update_main_view_preview(gui)
 
@@ -303,24 +329,30 @@ def build_ui(gui, parent_tag: str = "control_panel") -> None:
             dpg.add_slider_float(
                 label="Flat % (cold)",
                 default_value=flat_thresh,
-                min_value=0.001,
-                max_value=0.05,
+                min_value=0.0,
+                max_value=0.5,
                 format="%.3f",
                 tag="bad_pixel_map_flat_thresh",
                 width=-120,
                 callback=_apply_flat_thresh,
             )
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="-", width=28, callback=lambda s, a: _step_slider("bad_pixel_map_flat_thresh", -0.001))
+                dpg.add_button(label="+", width=28, callback=lambda s, a: _step_slider("bad_pixel_map_flat_thresh", 0.001))
             dpg.add_text("Bottom fraction of pixels marked cold", color=[120, 120, 120])
             dpg.add_slider_float(
                 label="Dark % (hot)",
                 default_value=dark_thresh,
-                min_value=0.001,
-                max_value=0.05,
+                min_value=0.0,
+                max_value=0.5,
                 format="%.3f",
                 tag="bad_pixel_map_dark_thresh",
                 width=-120,
                 callback=_apply_dark_thresh,
             )
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="-", width=28, callback=lambda s, a: _step_slider("bad_pixel_map_dark_thresh", -0.001))
+                dpg.add_button(label="+", width=28, callback=lambda s, a: _step_slider("bad_pixel_map_dark_thresh", 0.001))
             dpg.add_text("Top fraction of pixels marked hot", color=[120, 120, 120])
             dpg.add_checkbox(
                 label="Show pixel map preview",
@@ -328,8 +360,20 @@ def build_ui(gui, parent_tag: str = "control_panel") -> None:
                 tag="bad_pixel_map_show_in_main_view",
                 callback=_cb_show_in_main_view,
             )
+            def _cb_use_histogram_preview(sender, app_data):
+                gui.bad_pixel_map_use_histogram_preview = bool(dpg.get_value(sender))
+                api.save_settings()
+                _update_main_view_preview(gui)
+
+            dpg.add_checkbox(
+                label="Use histogram for preview",
+                default_value=gui.bad_pixel_map_use_histogram_preview,
+                tag="bad_pixel_map_use_histogram_preview",
+                callback=_cb_use_histogram_preview,
+            )
+            dpg.add_text("Off = raw (scale by min/max, better for mask). On = windowing/hist eq.", color=[120, 120, 120])
             dpg.add_separator()
-            dpg.add_button(label="Build from dark & flat", callback=_cb_build, width=-1)
+            dpg.add_button(label="Save pixel map", callback=_cb_build, width=-1)
             # Control panel is 350px; content indent leaves ~330px - split for two equal buttons
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Load saved map", callback=_cb_load, width=150)

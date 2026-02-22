@@ -95,6 +95,10 @@ class HamamatsuC7942Module:
         """C7942 sensor is 12-bit. Used for display/windowing range."""
         return 12
 
+    def uses_dual_shot_for_capture_n(self):
+        """True: capture_n runs _do_dual_shot per frame (2 exposures per frame). Dark/flat timeout is doubled."""
+        return True
+
     def build_ui(self, gui, parent_tag="control_panel"):
         with dpg.collapsing_header(parent=parent_tag, label="Connection (C7942)", default_open=True):
             with dpg.group(indent=10):

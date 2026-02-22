@@ -4,7 +4,6 @@ USB connection via lib/hamamatsu_dc5; integration time 30 ms–10 s, 14-bit sens
 """
 
 from typing import Optional
-import time
 import threading
 import numpy as np
 import dearpygui.dearpygui as dpg
@@ -44,7 +43,6 @@ def get_frame_size():
 def get_acquisition_modes():
     return [
         ("Single Shot", "single"),
-        ("Dual Shot", "dual"),
         ("Continuous", "continuous"),
         ("Capture N", "capture_n"),
     ]
@@ -163,47 +161,26 @@ class HamamatsuDC5Module:
             api.submit_frame(frame)
         api.set_progress(1.0)
 
-    def _do_dual_shot(self, gui):
-        api = gui.api
-        api.set_progress(0.0, "Clearing...")
-        frame = self._trigger_and_read(gui)
-        if frame is None or api.acquisition_should_stop():
-            return
-        api.set_progress(0.0, "Integrating...")
-        t_start = time.time()
-        integ = api.get_integration_time_seconds()
-        while time.time() < t_start + integ:
-            if api.acquisition_should_stop():
-                return
-            elapsed = time.time() - t_start
-            api.set_progress(min(elapsed / max(integ, 0.01), 1.0))
-            time.sleep(0.05)
-        api.set_progress(0.0, "Reading...")
-        frame = self._trigger_and_read(gui)
-        if frame is not None and not api.acquisition_should_stop():
-            api.submit_frame(frame)
-
     def _run_worker(self, gui):
         api = gui.api
         mode = api.get_acquisition_mode()
         try:
-            if mode == "single":
+            if mode in ("single", "dual"):
+                # DC5 uses single shot only; "dual" can appear from app default/saved state
                 self._do_single_shot(gui)
-            elif mode == "dual":
-                self._do_dual_shot(gui)
             elif mode == "continuous":
                 i = 0
                 while not api.acquisition_should_stop():
                     i += 1
                     api.set_progress(0.0, f"Continuous #{i}")
-                    self._do_dual_shot(gui)
+                    self._do_single_shot(gui)
             elif mode == "capture_n":
                 n = api.get_integration_frame_count()
                 for i in range(n):
                     if api.acquisition_should_stop():
                         break
                     api.set_progress(i / max(n, 1), f"Capturing {i+1}/{n}")
-                    self._do_dual_shot(gui)
+                    self._do_single_shot(gui)
                 api.set_progress(1.0)
         except Exception as e:
             api.set_status_message(f"Error: {e}")

@@ -251,6 +251,14 @@ class AppAPI:
         """Current camera module (or None)."""
         return getattr(self._gui, "camera_module", None)
 
+    def get_camera_uses_dual_shot_for_capture_n(self) -> bool:
+        """True if the active camera does 2 exposures per frame in capture_n (e.g. C7942). Use to double dark/flat timeout."""
+        cam = self.get_camera_module()
+        if cam is None:
+            return False
+        fn = getattr(cam, "uses_dual_shot_for_capture_n", None)
+        return bool(fn() if callable(fn) else False)
+
     def is_camera_connected(self) -> bool:
         """True if a camera module is loaded and connected."""
         cam = self.get_camera_module()
@@ -349,13 +357,17 @@ class AppAPI:
         """Paint a frame to the texture (e.g. after deconvolution)."""
         self._gui._paint_texture_from_frame(frame)
 
-    def show_preview_in_main_view(self, frame: np.ndarray) -> None:
+    def show_preview_in_main_view(self, frame: np.ndarray, use_histogram: bool = True) -> None:
         """
-        Show a short preview in the main view: frame is scaled to fit the window (max size that fits, aspect preserved).
+        Show a short preview in the main view.
+        use_histogram=True: apply windowing/histogram/hist eq (good for dark/flat). False: raw display
+        (scale to fit, normalize by frame min/max; good for masks to avoid washed-out look).
         New frames will not overwrite the preview until clear_main_view_preview() is called.
-        Use for e.g. bad pixel map preview while adjusting sliders.
+        Safe to call from a worker thread: the paint is deferred to the main thread.
         """
-        self._gui._paint_preview_to_main_view(frame)
+        with self._gui.frame_lock:
+            self._gui._pending_preview_frame = np.asarray(frame, dtype=np.float32).copy()
+            self._gui._pending_preview_use_histogram = use_histogram
 
     def clear_main_view_preview(self) -> None:
         """Leave main-view preview mode and restore the normal display (live/raw/deconvolved)."""

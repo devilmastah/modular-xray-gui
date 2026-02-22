@@ -89,8 +89,11 @@ def capture_dark(gui) -> bool:
         return False
     n = api.get_dark_capture_stack_count()
     t_int = api.get_integration_time_seconds()
-    # Timeout: nr_frames * frametime + nr_frames * 5 seconds
-    timeout_s = n * t_int + n * 5.0
+    # Timeout: n * (integration + per-frame readout margin). Same formula as flat.
+    readout_margin_s = 5.0
+    timeout_s = n * (t_int + readout_margin_s)
+    if api.get_camera_uses_dual_shot_for_capture_n():
+        timeout_s *= 2  # dual shot = 2 exposures per frame (e.g. C7942)
     api.set_progress(0.0, f"Capturing dark ({n} frames)... Click Stop to cancel.")
     avg = api.request_n_frames_processed_up_to_slot(
         n, max_slot=MODULE_INFO["pipeline_slot"], timeout_seconds=timeout_s, dark_capture=True
@@ -102,6 +105,7 @@ def capture_dark(gui) -> bool:
     api.save_dark_field()
     api.set_progress(1.0)
     api.set_status_message(f"Master dark saved ({n} frames avg, {api.get_integration_time_seconds()}s)")
+    api.show_preview_in_main_view(avg)
     return True
 
 
