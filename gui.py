@@ -163,6 +163,7 @@ class XrayGUI:
         self._window_refresh_pending = False
         # File section: image opened for preview (run through pipeline → becomes processed result; Save TIF then saves it)
         self._file_preview_frame = None  # float32 (H,W) or None
+        self._tiff_save_raw = False  # True when TIFF dialog was opened for "Save unprocessed TIF"
 
         # DPG ids (assigned in _build_ui)
         self._texture_id = None
@@ -528,6 +529,12 @@ class XrayGUI:
         """Leave preview mode and repaint the normal display."""
         ui_display.clear_main_view_preview(self)
 
+    def _dismiss_file_preview(self) -> None:
+        """Clear opened-image state and preview so display shows live/buffer again. Call when starting acquisition, stop, clear buffer, or capture N."""
+        self._file_preview_frame = None
+        if self._main_view_preview_active:
+            self._clear_main_view_preview()
+
     @staticmethod
     def _histogram_equalize(img):
         """Histogram equalization for display. Delegates to ui.display."""
@@ -590,6 +597,7 @@ class XrayGUI:
         self._save_settings()
 
     def _cb_start(self, sender=None, app_data=None):
+        self._dismiss_file_preview()
         combo_value = dpg.get_value("acq_mode_combo")
         mode_id = getattr(self, "_acquisition_mode_map", {}).get(combo_value, "dual")
         self.integration_time = self._parse_integration_time(dpg.get_value("integ_time_combo"))
@@ -597,6 +605,7 @@ class XrayGUI:
         self._start_acquisition(mode_id)
 
     def _cb_stop(self, sender=None, app_data=None):
+        self._dismiss_file_preview()
         self._stop_acquisition()
 
     def _cb_auto_window(self, sender=None, app_data=None):
@@ -705,12 +714,14 @@ class XrayGUI:
         self._save_windowing_settings_fast()
 
     def _cb_clear_buffer(self, sender=None, app_data=None):
+        self._dismiss_file_preview()
         with self.frame_lock:
             self.frame_buffer.clear()
             self.display_frame = None
         self._status_msg = "Buffer cleared"
 
     def _cb_capture_n(self, sender=None, app_data=None):
+        self._dismiss_file_preview()
         self.integration_n = int(dpg.get_value("integ_n_slider"))
         self._start_acquisition("capture_n")
 
@@ -854,6 +865,12 @@ class XrayGUI:
 
     def _cb_save_tiff(self, sender=None, app_data=None):
         ui_file_ops.cb_save_tiff(self)
+
+    def _cb_save_raw_tiff(self, sender=None, app_data=None):
+        ui_file_ops.cb_save_raw_tiff(self)
+
+    def _cb_file_save_raw_tiff(self, sender=None, app_data=None):
+        ui_file_ops.cb_save_raw_tiff(self)
 
     def _load_image_file_as_float32(self, path: str) -> np.ndarray:
         """Load TIFF or PNG as 2D float32, resized to current frame size. Raises on error."""
@@ -1200,9 +1217,13 @@ class XrayGUI:
             dpg.configure_item("deconv_apply_btn", enabled=idle and has_frame)
             dpg.configure_item("deconv_revert_btn", enabled=idle and self._deconv_raw_frame is not None)
 
-        # File section: enable Save TIF only when there is a processed result to save
+        # File section: enable Save TIF when processed result exists; Save unprocessed TIF when raw frame exists
         if dpg.does_item_exist("file_save_tiff_btn"):
             dpg.configure_item("file_save_tiff_btn", enabled=(self._get_export_frame() is not None))
+        if dpg.does_item_exist("file_save_raw_tiff_btn"):
+            with self.frame_lock:
+                has_raw = self.raw_frame is not None
+            dpg.configure_item("file_save_raw_tiff_btn", enabled=has_raw)
 
         # Machine module tick callbacks (e.g. ESP HV state refresh)
         for cb in getattr(self, "_machine_module_tick_callbacks", []):
