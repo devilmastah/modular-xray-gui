@@ -252,6 +252,12 @@ class XrayGUI:
         self._texture_id = None
         # Main view short preview: when True, display is not overwritten by new frames until clear_main_view_preview()
         self._main_view_preview_active = False
+        # When set (e.g. from dark/flat capture worker), main thread will paint it next _render_tick
+        self._pending_preview_frame = None
+        self._pending_preview_use_histogram = True
+        # Current preview frame (stored so histogram/windowing/hist eq apply to preview when user changes them)
+        self._preview_frame = None
+        self._preview_use_histogram = True  # False = raw (scale to fit, own min/max) for e.g. mask preview
 
         # Image viewport (zoom and pan) - will be initialized after UI is built
         self.image_viewport = None
@@ -668,6 +674,10 @@ class XrayGUI:
                 self._capture_frames_collect.append(frame.copy())
                 if len(self._capture_frames_collect) >= getattr(self, "_capture_n", 0):
                     self._capture_frames_ready.set()
+                # Show progressing stack (running average) in main view during dark/flat capture
+                self._pending_preview_frame = np.mean(
+                    self._capture_frames_collect, axis=0
+                ).astype(np.float32).copy()
             return
 
         frame_before_distortion = None
@@ -1037,25 +1047,41 @@ class XrayGUI:
             canvas[:] = 0.5
         return np.clip(canvas, 0.0, 1.0).astype(np.float32)
 
-    def _paint_preview_to_main_view(self, frame: np.ndarray) -> None:
-        """Paint a frame to the main view, scaled to fit. Sets preview mode so new frames do not overwrite until clear."""
+    def _paint_preview_raw(self) -> None:
+        """Paint _preview_frame to main view with scale-to-fit and frame's own min/max (no histogram/windowing)."""
+        if self._preview_frame is None or self._preview_frame.size == 0 or self._texture_id is None:
+            return
         disp_w = getattr(self, "_disp_w", 0)
         disp_h = getattr(self, "_disp_h", 0)
-        if disp_w <= 0 or disp_h <= 0 or self._texture_id is None:
+        if disp_w <= 0 or disp_h <= 0:
             return
-        scaled = self._scale_frame_to_fit(frame, disp_w, disp_h)
+        scaled = self._scale_frame_to_fit(self._preview_frame, disp_w, disp_h)
         rgba = np.empty((disp_h, disp_w, 4), dtype=np.float32)
         rgba[:, :, 0] = scaled
         rgba[:, :, 1] = scaled
         rgba[:, :, 2] = scaled
         rgba[:, :, 3] = 1.0
         dpg.set_value(self._texture_id, rgba.ravel().tolist())
+        self._force_image_refresh()
+
+    def _paint_preview_to_main_view(self, frame: np.ndarray, use_histogram: bool = True) -> None:
+        """Paint a frame to the main view. use_histogram=True: windowing/hist eq; False: raw (scale to fit, own min/max). Sets preview mode until clear."""
+        if frame is None or frame.size == 0 or self._texture_id is None:
+            return
         self._main_view_preview_active = True
+        self._preview_frame = np.asarray(frame, dtype=np.float32).copy()
+        self._preview_use_histogram = use_histogram
+        if use_histogram:
+            self._paint_texture_from_frame(self._preview_frame)
+        else:
+            self._paint_preview_raw()
         self._force_image_refresh()
 
     def _clear_main_view_preview(self) -> None:
         """Leave preview mode and repaint the normal display (live/raw/deconvolved)."""
         self._main_view_preview_active = False
+        self._preview_frame = None
+        self._preview_use_histogram = True
         self._refresh_texture_from_settings()
         self._force_image_refresh()
 
@@ -1187,7 +1213,13 @@ class XrayGUI:
         dpg.set_axis_limits("hist_y", 0.0, 1.05)
 
     def _refresh_texture_from_settings(self):
-        """Re-render current view with new windowing settings (live, raw, or deconvolved)."""
+        """Re-render current view with new windowing settings (live, raw, deconvolved, or preview)."""
+        if self._main_view_preview_active and self._preview_frame is not None:
+            if getattr(self, "_preview_use_histogram", True):
+                self._paint_texture_from_frame(self._preview_frame.copy())
+            else:
+                self._paint_preview_raw()
+            return
         if self._display_mode == "live":
             with self.frame_lock:
                 if self.display_frame is None:
@@ -1237,10 +1269,13 @@ class XrayGUI:
         self._stop_acquisition()
 
     def _cb_auto_window(self, sender=None, app_data=None):
-        with self.frame_lock:
-            if self.display_frame is None:
-                return
-            frame = self.display_frame.copy()
+        if self._main_view_preview_active and self._preview_frame is not None:
+            frame = self._preview_frame.copy()
+        else:
+            with self.frame_lock:
+                if self.display_frame is None:
+                    return
+                frame = self.display_frame.copy()
         analysis = self._get_histogram_analysis_pixels(frame)
         if analysis.size == 0:
             return
@@ -1663,6 +1698,7 @@ class XrayGUI:
                 with dpg.menu(label="File"):
                     dpg.add_menu_item(label="Export PNG...", callback=self._cb_export_png)
                     dpg.add_menu_item(label="Save as TIFF...", callback=self._cb_save_tiff)
+                    dpg.add_menu_item(label="Quit", callback=lambda: dpg.stop_dearpygui())
                 with dpg.menu(label="Settings"):
                     dpg.add_menu_item(label="Settings...", callback=self._cb_show_settings)
 
@@ -2079,6 +2115,15 @@ class XrayGUI:
 
     def _render_tick(self):
         """Called every frame from the render loop."""
+        # Paint any preview requested from a worker (e.g. dark/flat capture) on main thread
+        with self.frame_lock:
+            pending = self._pending_preview_frame
+            use_hist = getattr(self, "_pending_preview_use_histogram", True)
+            self._pending_preview_frame = None
+            self._pending_preview_use_histogram = True
+        if pending is not None:
+            self._paint_preview_to_main_view(pending, use_histogram=use_hist)
+
         # On transition from acquisition to idle: optional beam supply turn-off (skip if workflow keeps HV on, e.g. CT scan)
         if self._prev_acq_mode != "idle" and self.acq_mode == "idle":
             beam = getattr(self, "beam_supply", None)
