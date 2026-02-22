@@ -24,7 +24,7 @@ libusb1
 # ESP HV Supply, Example Arduino powersupply: serial port list and connect
 pyserial
 
-# ASI camera capture (ZWO): machine_modules/asi_camera
+# ASI camera capture (ZWO): modules/camera/asi_camera
 zwoasi
 
 # ─── Experiments / ZMQ server ───

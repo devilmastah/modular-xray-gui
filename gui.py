@@ -19,7 +19,7 @@ import dearpygui.dearpygui as dpg
 
 # Ensure app directory is on path for module imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from machine_modules.banding.banding_correction import (
+from modules.image_processing.banding.banding_correction import (
     DEFAULT_BLACK_W,
     DEFAULT_SMOOTH_WIN,
     DEFAULT_VERTICAL_STRIPE_H,
@@ -28,9 +28,9 @@ from machine_modules.banding.banding_correction import (
 from lib.image_viewport import ImageViewport
 from lib.settings import load_settings, save_settings, list_profiles, save_profile, apply_profile, set_current_profile
 from lib.app_api import AppAPI
-from machine_modules.registry import discover_modules, all_extra_settings_keys
+from modules.registry import discover_modules, all_extra_settings_keys
 
-# Default frame size when no camera module loaded; camera module can override in _build_ui
+# Default frame size when no detector module loaded; detector module can override in _build_ui
 DEFAULT_FRAME_W = 2400
 DEFAULT_FRAME_H = 2400
 # Master darks saved in app/darks/, flats in app/flats/, bad pixel maps (TIFF review) in app/pixelmaps/
@@ -397,7 +397,7 @@ class XrayGUI:
             # Each module contributes its own settings (gui passed so modules can read DPG or fallback to gui state)
             for m in self._discovered_modules:
                 try:
-                    mod = __import__(f"machine_modules.{m['name']}", fromlist=["get_settings_for_save"])
+                    mod = __import__(m["import_path"], fromlist=["get_settings_for_save"])
                     get_save = getattr(mod, "get_settings_for_save", None)
                     if callable(get_save):
                         for k, v in get_save(self).items():
@@ -453,7 +453,7 @@ class XrayGUI:
             s["disp_scale"] = self.disp_scale
             for m in self._discovered_modules:
                 try:
-                    mod = __import__(f"machine_modules.{m['name']}", fromlist=["get_settings_for_save"])
+                    mod = __import__(m["import_path"], fromlist=["get_settings_for_save"])
                     get_save = getattr(mod, "get_settings_for_save", None)
                     if callable(get_save):
                         for k, v in get_save(self).items():
@@ -884,7 +884,7 @@ class XrayGUI:
     def _start_acquisition(self, mode):
         """Start acquisition; mode is 'single', 'dual', 'continuous', 'capture_n'."""
         if self.camera_module is None:
-            self._status_msg = "No camera module loaded"
+            self._status_msg = "No detector module loaded"
             return
         if not self.camera_module.is_connected():
             self._status_msg = "Not connected"
@@ -1392,7 +1392,7 @@ class XrayGUI:
             return
         def _run():
             try:
-                mod = __import__("machine_modules.dark_correction", fromlist=["capture_dark"])
+                mod = __import__("modules.image_processing.dark_correction", fromlist=["capture_dark"])
                 mod.capture_dark(self)
             except Exception as e:
                 self.api.set_status_message(f"Dark capture error: {e}")
@@ -1425,7 +1425,7 @@ class XrayGUI:
             return
         def _run():
             try:
-                mod = __import__("machine_modules.flat_correction", fromlist=["capture_flat"])
+                mod = __import__("modules.image_processing.flat_correction", fromlist=["capture_flat"])
                 mod.capture_flat(self)
             except Exception as e:
                 self.api.set_status_message(f"Flat capture error: {e}")
@@ -1622,12 +1622,12 @@ class XrayGUI:
     # ── Build UI ────────────────────────────────────────────────────
 
     def _build_ui(self):
-        # Frame size from selected camera module (highest camera_priority among enabled)
-        camera_modules = [m for m in self._discovered_modules if m.get("type") == "camera" and self._module_enabled.get(m["name"], False)]
-        camera_modules.sort(key=lambda m: m.get("camera_priority", 0), reverse=True)
-        if camera_modules:
+        # Frame size from selected detector module (highest camera_priority among enabled)
+        detector_modules = [m for m in self._discovered_modules if m.get("type") == "detector" and self._module_enabled.get(m["name"], False)]
+        detector_modules.sort(key=lambda m: m.get("camera_priority", 0), reverse=True)
+        if detector_modules:
             try:
-                cam_mod = __import__(f"machine_modules.{camera_modules[0]['name']}", fromlist=["get_frame_size"])
+                cam_mod = __import__(detector_modules[0]["import_path"], fromlist=["get_frame_size"])
                 self.frame_width, self.frame_height = cam_mod.get_frame_size()
             except Exception:
                 self.frame_width, self.frame_height = DEFAULT_FRAME_W, DEFAULT_FRAME_H
@@ -1640,13 +1640,13 @@ class XrayGUI:
         self.bad_pixel_map_mask = None
 
         # Build image alteration pipeline (slot, process_frame) and distortion-only sublist for live preview
-        alteration_modules = [m for m in self._discovered_modules if m.get("type") == "alteration" and self._module_enabled.get(m["name"], False)]
-        alteration_modules.sort(key=lambda m: m.get("pipeline_slot", 0))
+        image_processing_modules = [m for m in self._discovered_modules if m.get("type") == "image_processing" and self._module_enabled.get(m["name"], False)]
+        image_processing_modules.sort(key=lambda m: m.get("pipeline_slot", 0))
         self._alteration_pipeline = []
         self._pipeline_module_slots = {}
-        for m in alteration_modules:
+        for m in image_processing_modules:
             try:
-                mod = __import__(f"machine_modules.{m['name']}", fromlist=["process_frame"])
+                mod = __import__(m["import_path"], fromlist=["process_frame"])
                 pf = getattr(mod, "process_frame", None)
                 if callable(pf):
                     slot = m.get("pipeline_slot", 0)
@@ -1723,28 +1723,28 @@ class XrayGUI:
 
                 # Right: control panel
                 with dpg.child_window(width=350, tag="control_panel"):
-                    # ── Connection (from selected camera module or placeholder) ──
-                    if camera_modules:
+                    # ── Connection (from selected detector module or placeholder) ──
+                    if detector_modules:
                         try:
-                            cam_mod = __import__(f"machine_modules.{camera_modules[0]['name']}", fromlist=["build_ui"])
+                            cam_mod = __import__(detector_modules[0]["import_path"], fromlist=["build_ui"])
                             cam_mod.build_ui(self, "control_panel")
-                            self.camera_module_name = camera_modules[0]["name"]
+                            self.camera_module_name = detector_modules[0]["name"]
                             self._load_dark_field()
                             self._load_flat_field()
                         except Exception:
                             self.camera_module_name = None
                             with dpg.collapsing_header(label="Connection", default_open=True):
                                 with dpg.group(indent=10):
-                                    dpg.add_text("No camera module loaded.", color=[150, 150, 150])
-                                    dpg.add_text("Enable a camera module in Settings (applies on next startup).", color=[120, 120, 120])
+                                    dpg.add_text("No detector module loaded.", color=[150, 150, 150])
+                                    dpg.add_text("Enable a detector module in Settings (applies on next startup).", color=[120, 120, 120])
                     else:
                         self.camera_module_name = None
                         with dpg.collapsing_header(label="Connection", default_open=True):
                             with dpg.group(indent=10):
-                                dpg.add_text("No camera module loaded.", color=[150, 150, 150])
-                                dpg.add_text("Enable a camera module in Settings (applies on next startup).", color=[120, 120, 120])
+                                dpg.add_text("No detector module loaded.", color=[150, 150, 150])
+                                dpg.add_text("Enable a detector module in Settings (applies on next startup).", color=[120, 120, 120])
 
-                    # ── Acquisition (mode list from camera module if loaded) ──
+                    # ── Acquisition (mode list from detector module if loaded) ──
                     with dpg.collapsing_header(label="Acquisition", default_open=True):
                         with dpg.group(indent=10):
                             if self.camera_module is not None:
@@ -1871,12 +1871,12 @@ class XrayGUI:
                                     dpg.add_button(label="Clear Flat", callback=self._cb_clear_flat, width=115)
                                 dpg.add_text(self._flat_status_text(), tag="flat_status")
 
-                    # ── Image alteration modules (in pipeline order by slot: dark 100, flat 200, banding 300, dead_pixel 400) ──
-                    alteration_for_ui = [m for m in self._discovered_modules if m.get("type") == "alteration" and self._module_enabled.get(m["name"], False)]
-                    alteration_for_ui.sort(key=lambda m: m.get("pipeline_slot", 0))
-                    for m in alteration_for_ui:
+                    # ── Image processing modules (in pipeline order by slot: dark 100, flat 200, banding 300, dead_pixel 400) ──
+                    image_processing_for_ui = [m for m in self._discovered_modules if m.get("type") == "image_processing" and self._module_enabled.get(m["name"], False)]
+                    image_processing_for_ui.sort(key=lambda m: m.get("pipeline_slot", 0))
+                    for m in image_processing_for_ui:
                         try:
-                            mod = __import__(f"machine_modules.{m['name']}", fromlist=["build_ui"])
+                            mod = __import__(m["import_path"], fromlist=["build_ui"])
                             mod.build_ui(self, "control_panel")
                         except Exception:
                             pass
@@ -1886,7 +1886,7 @@ class XrayGUI:
                         if m.get("type") != "manual_alteration" or not self._module_enabled.get(m["name"], False):
                             continue
                         try:
-                            mod = __import__(f"machine_modules.{m['name']}", fromlist=["build_ui"])
+                            mod = __import__(m["import_path"], fromlist=["build_ui"])
                             mod.build_ui(self, "control_panel")
                         except Exception:
                             pass
@@ -1896,7 +1896,7 @@ class XrayGUI:
                         if m.get("type") != "machine" or not self._module_enabled.get(m["name"], False):
                             continue
                         try:
-                            mod = __import__(f"machine_modules.{m['name']}", fromlist=["build_ui"])
+                            mod = __import__(m["import_path"], fromlist=["build_ui"])
                             mod.build_ui(self, "control_panel")
                         except Exception:
                             pass
@@ -1906,7 +1906,7 @@ class XrayGUI:
                         if m.get("type") != "workflow_automation" or not self._module_enabled.get(m["name"], False):
                             continue
                         try:
-                            mod = __import__(f"machine_modules.{m['name']}", fromlist=["build_ui"])
+                            mod = __import__(m["import_path"], fromlist=["build_ui"])
                             mod.build_ui(self, "control_panel")
                         except Exception:
                             pass
@@ -1924,15 +1924,15 @@ class XrayGUI:
             )
             dpg.add_text("Reduces display resolution (block average).", color=[150, 150, 150])
             dpg.add_spacer()
-            # Group and sort modules by type: camera, alteration, manual_alteration, machine, workflow_automation
-            _type_order = {"camera": 0, "alteration": 1, "manual_alteration": 2, "machine": 3, "workflow_automation": 4}
-            _type_headers = {"camera": "Camera modules", "alteration": "Alteration modules", "manual_alteration": "Manual alteration modules", "machine": "Machine modules", "workflow_automation": "Workflow modules"}
+            # Group and sort modules by type: detector, image_processing, manual_alteration, machine, workflow_automation
+            _type_order = {"detector": 0, "image_processing": 1, "manual_alteration": 2, "machine": 3, "workflow_automation": 4}
+            _type_headers = {"detector": "Detector modules", "image_processing": "Image processing modules", "manual_alteration": "Manual alteration modules", "machine": "Machine modules", "workflow_automation": "Workflow modules"}
             def _settings_module_sort_key(m):
                 t = m.get("type", "machine")
                 order = _type_order.get(t, 3)
-                if t == "camera":
+                if t == "detector":
                     return (order, -m.get("camera_priority", 0))  # higher priority first
-                if t == "alteration" or t == "manual_alteration":
+                if t == "image_processing" or t == "manual_alteration":
                     return (order, m.get("pipeline_slot", 0))
                 return (order, 0)
             _settings_modules = sorted(self._discovered_modules, key=_settings_module_sort_key)
@@ -1943,26 +1943,26 @@ class XrayGUI:
                     _last_type = t
                     header = _type_headers.get(t, "Modules")
                     dpg.add_text(header, color=[200, 200, 200])
-                    if t == "camera":
-                        camera_mods = [x for x in _settings_modules if x.get("type") == "camera"]
-                        _cam_items = ["None"] + [self._camera_combo_label(x) for x in camera_mods]
-                        _cam_enabled = next((self._camera_combo_label(x) for x in camera_mods if self._module_enabled.get(x["name"], False)), None)
+                    if t == "detector":
+                        detector_mods = [x for x in _settings_modules if x.get("type") == "detector"]
+                        _det_items = ["None"] + [self._detector_combo_label(x) for x in detector_mods]
+                        _det_enabled = next((self._detector_combo_label(x) for x in detector_mods if self._module_enabled.get(x["name"], False)), None)
                         dpg.add_combo(
-                            label="Camera module",
-                            items=_cam_items,
-                            default_value=_cam_enabled or "None",
-                            tag="settings_camera_combo",
+                            label="Detector module",
+                            items=_det_items,
+                            default_value=_det_enabled or "None",
+                            tag="settings_detector_combo",
                             width=-1,
-                            callback=self._cb_camera_module_combo
+                            callback=self._cb_detector_module_combo
                         )
                         continue
-                if t == "camera":
+                if t == "detector":
                     continue
                 tag = f"load_module_cb_{m['name']}"
                 label = f"Load {m['display_name']} module"
-                if t == "alteration" or (t == "manual_alteration" and m.get("pipeline_slot", 0) != 0):
+                if t == "image_processing" or (t == "manual_alteration" and m.get("pipeline_slot", 0) != 0):
                     slot = m.get("pipeline_slot", 0)
-                    label += f" (slot {slot})" if t == "alteration" else " (post-capture)"
+                    label += f" (slot {slot})" if t == "image_processing" else " (post-capture)"
                 dpg.add_checkbox(
                     label=label,
                     default_value=self._module_enabled.get(m["name"], m.get("default_enabled", False)),
@@ -1990,19 +1990,19 @@ class XrayGUI:
         if dpg.does_item_exist("disp_scale_combo"):
             _labels = {"1": "1 - Full", "2": "2 - Half", "4": "4 - Quarter"}
             dpg.set_value("disp_scale_combo", _labels.get(str(self.disp_scale), "1 - Full"))
-        # Sync camera dropdown (only one camera can be selected; fix legacy configs with multiple)
-        camera_mods = [m for m in self._discovered_modules if m.get("type") == "camera"]
-        if camera_mods:
-            enabled_list = [m for m in camera_mods if self._module_enabled.get(m["name"], False)]
+        # Sync detector dropdown (only one detector can be selected; fix legacy configs with multiple)
+        detector_mods = [m for m in self._discovered_modules if m.get("type") == "detector"]
+        if detector_mods:
+            enabled_list = [m for m in detector_mods if self._module_enabled.get(m["name"], False)]
             if len(enabled_list) > 1:
                 keep = max(enabled_list, key=lambda x: x.get("camera_priority", 0))
-                for m in camera_mods:
+                for m in detector_mods:
                     self._module_enabled[m["name"]] = m["name"] == keep["name"]
-            enabled = next((self._camera_combo_label(m) for m in camera_mods if self._module_enabled.get(m["name"], False)), None)
-            if dpg.does_item_exist("settings_camera_combo"):
-                dpg.set_value("settings_camera_combo", enabled or "None")
+            enabled = next((self._detector_combo_label(m) for m in detector_mods if self._module_enabled.get(m["name"], False)), None)
+            if dpg.does_item_exist("settings_detector_combo"):
+                dpg.set_value("settings_detector_combo", enabled or "None")
         for m in self._discovered_modules:
-            if m.get("type") == "camera":
+            if m.get("type") == "detector":
                 continue
             tag = f"load_module_cb_{m['name']}"
             if dpg.does_item_exist(tag):
@@ -2027,21 +2027,21 @@ class XrayGUI:
         dpg.show_item("settings_window")
         dpg.focus_item("settings_window")
 
-    def _camera_combo_label(self, m: dict) -> str:
-        """Label for camera module in Settings dropdown: display_name (N-bit)."""
+    def _detector_combo_label(self, m: dict) -> str:
+        """Label for detector module in Settings dropdown: display_name (N-bit)."""
         depth = m.get("sensor_bit_depth", 12)
         return f"{m['display_name']} ({depth}-bit)"
 
-    def _cb_camera_module_combo(self, sender=None, app_data=None):
-        """One camera only: set selected module enabled, all other cameras disabled."""
-        camera_mods = [m for m in self._discovered_modules if m.get("type") == "camera"]
-        for m in camera_mods:
-            self._module_enabled[m["name"]] = (app_data == self._camera_combo_label(m))
+    def _cb_detector_module_combo(self, sender=None, app_data=None):
+        """One detector only: set selected module enabled, all other detectors disabled."""
+        detector_mods = [m for m in self._discovered_modules if m.get("type") == "detector"]
+        for m in detector_mods:
+            self._module_enabled[m["name"]] = (app_data == self._detector_combo_label(m))
         self._save_settings()
         if app_data and app_data != "None":
-            self._status_msg = f"Camera: {app_data} (applies on next startup)"
+            self._status_msg = f"Detector: {app_data} (applies on next startup)"
         else:
-            self._status_msg = "No camera module selected (applies on next startup)"
+            self._status_msg = "No detector module selected (applies on next startup)"
 
     def _cb_load_module(self, name: str):
         """Persist Load <module> setting; applies on next startup."""

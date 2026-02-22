@@ -4,7 +4,7 @@ A generic X-ray acquisition shell with modular hardware support. Provides viewpo
 
 **Origin.** This project is based on the work at [robbederks/hamamatsu_interface](https://github.com/robbederks/hamamatsu_interface) (custom USB interface PCB + firmware + software for the Hamamatsu C7921CA / C7942 X-ray sensor).
 
-**Use.** Use it for whatever you want. New modules are welcome—see [MODULES_OVERVIEW.md](machine_modules/MODULES_OVERVIEW.md) and [README_CAMERA_MODULES.md](machine_modules/README_CAMERA_MODULES.md) for how to add them.
+**Use.** Use it for whatever you want. New modules are welcome—see [MODULES_OVERVIEW.md](modules/MODULES_OVERVIEW.md) and [README_DETECTOR_MODULES.md](modules/README_DETECTOR_MODULES.md) for how to add them.
 
 ## Requirements
 
@@ -107,8 +107,8 @@ If you're new to Python on Windows, follow these steps:
 - **[GUI Overview](docs/README_GUI.md)** - Main application structure, frame pipeline, acquisition flow
 - **[Architecture](docs/ARCHITECTURE.md)** - Design principles, data flow, module integration
 - **[Code Reference](docs/CODE_REFERENCE.md)** - API reference, module types, entry points
-- **[Module Overview](machine_modules/MODULES_OVERVIEW.md)** - Camera, supply, and workflow modules
-- **[Camera Modules](machine_modules/README_CAMERA_MODULES.md)** - Camera module contract and implementation guide
+- **[Module Overview](modules/MODULES_OVERVIEW.md)** - Camera, supply, and workflow modules
+- **[Detector Modules](modules/README_DETECTOR_MODULES.md)** - Detector module contract and implementation guide
 
 ## Structure
 
@@ -121,7 +121,7 @@ If you're new to Python on Windows, follow these steps:
 - **`image_viewport.py`** - Image display and interaction
 - **`hamamatsu_teensy.py`** - Shared hardware library (legacy, used by some modules)
 
-### Modules (`machine_modules/`)
+### Modules (`modules/`)
 - Loadable hardware modules (cameras, supplies, image alterations, workflow automation)
 - Automatically discovered at runtime
 - Each module provides its own defaults and settings
@@ -148,10 +148,10 @@ If you're new to Python on Windows, follow these steps:
 
 ## Module System
 
-The application discovers modules automatically from `machine_modules/`. No code changes needed to add new hardware support. Each module:
+The application discovers modules automatically from `modules/`. No code changes needed to add new hardware support. Each module:
 - Declares its metadata via `MODULE_INFO`
 - Provides default settings via `get_default_settings()`
 - Implements UI via `build_ui()`
 - Handles settings persistence via `get_settings_for_save()`
 
-See [MODULES_OVERVIEW.md](machine_modules/MODULES_OVERVIEW.md) for details.
+See [MODULES_OVERVIEW.md](modules/MODULES_OVERVIEW.md) for details.

@@ -45,12 +45,12 @@ def get_all_defaults(modules=None) -> dict:
     
     if modules is None:
         # Lazy import to avoid circular dependency
-        from machine_modules.registry import discover_modules, collect_module_defaults
+        from modules.registry import discover_modules, collect_module_defaults
         modules = discover_modules()
     
     defaults = dict(CORE_DEFAULTS)
     # Add module defaults (including load_<name>_module flags)
-    from machine_modules.registry import collect_module_defaults
+    from modules.registry import collect_module_defaults
     module_defaults = collect_module_defaults(modules)
     defaults.update(module_defaults)
     _DEFAULTS_CACHE = defaults

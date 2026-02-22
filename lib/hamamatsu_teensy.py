@@ -4,8 +4,8 @@ HamamatsuTeensy hardware library.
 
 Legacy shared library for USB communication with Teensy microcontroller.
 Used by:
-- machine_modules/hamamatsu_c7942 (camera module)
-- machine_modules/faxitron (Faxitron X-ray source control)
+- modules/detector/hamamatsu_c7942 (detector module)
+- modules/machine/faxitron (Faxitron X-ray source control)
 
 This is a hardware abstraction layer, not a module. Consider refactoring
 into module-specific code if these modules diverge further.

@@ -6,7 +6,7 @@ Test script for dead pixel line correction.
 import numpy as np
 import tifffile as tiff
 import sys
-from machine_modules.dead_pixel.dead_pixel_correction import correct_dead_lines
+from modules.image_processing.dead_pixel.dead_pixel_correction import correct_dead_lines
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

@@ -263,5 +263,5 @@ The implementation **matches** the architecture: camera is acquisition-only, pip
 ## 7. Where to read more
 
 - **API and module reference:** [CODE_REFERENCE.md](CODE_REFERENCE.md)
-- **Module types and discovery:** [../machine_modules/MODULES_OVERVIEW.md](../machine_modules/MODULES_OVERVIEW.md)
-- **Camera contract:** [../machine_modules/README_CAMERA_MODULES.md](../machine_modules/README_CAMERA_MODULES.md)
+- **Module types and discovery:** [../modules/MODULES_OVERVIEW.md](../modules/MODULES_OVERVIEW.md)
+- **Camera contract:** [../modules/README_DETECTOR_MODULES.md](../modules/README_DETECTOR_MODULES.md)

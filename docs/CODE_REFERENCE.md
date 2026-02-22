@@ -15,24 +15,24 @@ Short reference for developers: entry points, module types, and the **Applicatio
 | `**gui.py`**                      | Main window and logic: **XrayGUI** class. Frame pipeline, acquisition, dark/flat, Settings, profiles. Creates `**gui.api`** (AppAPI).              |
 | `**app_api.py**`                  | **Application API**: single facade for modules. Use `**gui.api.xxx()`** for all operations (frames, acquisition, settings, status, etc.).          |
 | `**settings.py**`                 | Load/save **settings.json** and **profiles/**; used by the app and via `**gui.api.save_settings()`** / `**gui.api.get_loaded_settings()**`.        |
-| `**machine_modules/**`            | All loadable modules (cameras, supplies, corrections, workflows). The app **discovers** packages here; no need to edit **gui.py** to add a module. |
-| `**machine_modules/registry.py`** | **discover_modules()**, **get_module_info(name)**. Used by the app to build Settings checkboxes and load/save.                                     |
+| `**modules/**`            | All loadable modules (cameras, supplies, corrections, workflows). The app **discovers** packages here; no need to edit **gui.py** to add a module. |
+| `**modules/registry.py`** | **discover_modules()**, **get_module_info(name)**. Used by the app to build Settings checkboxes and load/save.                                     |
 
 
 ---
 
 ## 2. Module types (what you can add)
 
-Each module is a **Python package** under `**machine_modules/<name>/`** with an `**__init__.py**` that defines at least `**MODULE_INFO**`.
+Each module is a **Python package** under `**modules/<type>/<name>/`** (e.g. `modules/camera/hamamatsu_dc5/`) with an `**__init__.py**` that defines at least `**MODULE_INFO**`.
 
 
 | Type                    | `MODULE_INFO["type"]`   | Purpose                                                                                                                                                                                                | Docs                                                                 |
 | ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| **Camera**              | `"camera"`              | Imaging source (one active). Connect, acquire frames, submit via `**gui.api.submit_frame(frame)`**, register via `**gui.api.register_camera_module(mod)**`.                                            | [README_CAMERA_MODULES.md](machine_modules/README_CAMERA_MODULES.md) |
-| **Machine / supply**    | `"machine"`             | Optional hardware (HV, Faxitron, etc.). Can register `**gui.api.register_beam_supply(adapter)`** for Auto On/Off.                                                                                      | [MODULES_OVERVIEW.md](machine_modules/MODULES_OVERVIEW.md) § 4       |
-| **Workflow automation** | `"workflow_automation"` | Multi-step workflows (e.g. CT). Use `**gui.api.request_integration(num_frames)`** to run one capture and get the processed frame.                                                                      | [MODULES_OVERVIEW.md](machine_modules/MODULES_OVERVIEW.md) § 5a      |
-| **Alteration**          | `"alteration"`          | Per-frame pipeline step (dark, flat, banding, dead pixel, pincushion, mustache, Image Enhancement, autocrop, background separator). `**pipeline_slot`** defines order. Use `**api.incoming_frame(module_name, frame)**` at entry and `**api.outgoing_frame(module_name, frame)**` at return for uniform module I/O. | [MODULES_OVERVIEW.md](machine_modules/MODULES_OVERVIEW.md) § 5       |
-| **Manual alteration**   | `"manual_alteration"`   | User-triggered actions on a static frame. Prefer module-cache pipeline helpers when available (see 4.9).                                                                                               | [MODULES_OVERVIEW.md](machine_modules/MODULES_OVERVIEW.md) § 1       |
+| **Detector**             | `"detector"`            | Imaging source (one active). Connect, acquire frames, submit via `**gui.api.submit_frame(frame)`**, register via `**gui.api.register_camera_module(mod)**`.                                            | [README_DETECTOR_MODULES.md](modules/README_DETECTOR_MODULES.md) |
+| **Machine / supply**    | `"machine"`             | Optional hardware (HV, Faxitron, etc.). Can register `**gui.api.register_beam_supply(adapter)`** for Auto On/Off.                                                                                      | [MODULES_OVERVIEW.md](modules/MODULES_OVERVIEW.md) § 4       |
+| **Workflow automation** | `"workflow_automation"` | Multi-step workflows (e.g. CT). Use `**gui.api.request_integration(num_frames)`** to run one capture and get the processed frame.                                                                      | [MODULES_OVERVIEW.md](modules/MODULES_OVERVIEW.md) § 5a      |
+| **Image processing**    | `"image_processing"`     | Per-frame pipeline step (dark, flat, banding, dead pixel, pincushion, mustache, Image Enhancement, autocrop, background separator). `**pipeline_slot`** defines order. Use `**api.incoming_frame(module_name, frame)**` at entry and `**api.outgoing_frame(module_name, frame)**` at return for uniform module I/O. | [MODULES_OVERVIEW.md](modules/MODULES_OVERVIEW.md) § 5       |
+| **Manual alteration**   | `"manual_alteration"`   | User-triggered actions on a static frame. Prefer module-cache pipeline helpers when available (see 4.9).                                                                                               | [MODULES_OVERVIEW.md](modules/MODULES_OVERVIEW.md) § 1       |
 
 
 ---
@@ -42,10 +42,10 @@ Each module is a **Python package** under `**machine_modules/<name>/`** with an 
 
 | Item                             | Required?                         | Description                                                                                                                                                                                                                                                                               |
 | -------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `**MODULE_INFO`**                | Yes                               | Dict: `**display_name**`, `**description**`, `**type**` (see above), `**default_enabled**` (bool). Camera: `**camera_priority**`. Alteration: `**pipeline_slot**`.                                                                                                                        |
+| `**MODULE_INFO`**                | Yes                               | Dict: `**display_name**`, `**description**`, `**type**` (see above), `**default_enabled**` (bool). Detector: `**camera_priority**`. Alteration: `**pipeline_slot**`.                                                                                                                        |
 | `**get_setting_keys()**`         | No                                | Function returning list of setting keys to persist (e.g. `["ct_num_projections", "ct_keep_hv_on"]`).                                                                                                                                                                                      |
 | `**get_settings_for_save(gui)**` | No                                | Return dict of current values. Prefer `**gui.api.get_module_settings_for_save(spec)**` with a list of `**(key, tag, converter, default)**` so the API auto-reads from DPG or loaded settings.                                                                                             |
-| `**build_ui(gui, parent_tag)**`  | Yes for camera, machine, workflow | Add your UI under **parent_tag** (e.g. `"control_panel"`). Camera: call `**gui.api.register_camera_module(mod)`**. Beam supply: `**gui.api.register_beam_supply(adapter)**`. Use `**gui.api.get_setting(key, default)**` for widget defaults, `**gui.api.save_settings()**` in callbacks. |
+| `**build_ui(gui, parent_tag)**`  | Yes for detector, machine, workflow | Add your UI under **parent_tag** (e.g. `"control_panel"`). Detector: call `**gui.api.register_camera_module(mod)`**. Beam supply: `**gui.api.register_beam_supply(adapter)**`. Use `**gui.api.get_setting(key, default)**` for widget defaults, `**gui.api.save_settings()**` in callbacks. |
 
 
 ---
@@ -206,7 +206,7 @@ All modules should use `**gui.api**` (defined in `**app_api.py**`) for every ope
 
 ## 5. Adding a new module (minimal checklist)
 
-1. Create `**machine_modules/<name>/__init__.py**`.
+1. Create `**modules/<name>/__init__.py**`.
 2. Set `**MODULE_INFO = {"display_name": "...", "description": "...", "type": "...", "default_enabled": False}**`.
 3. If you need persisted settings: implement `**get_setting_keys()**` and `**get_settings_for_save(gui)**`. Prefer `**return gui.api.get_module_settings_for_save([(key, tag, converter, default), ...])**` so the app auto-handles “widget exists vs. loaded settings”.
 4. Implement `**build_ui(gui, parent_tag)**`. For camera: also `**get_frame_size()**` and an object with **start_acquisition(gui)**, **stop_acquisition(gui)**, **is_connected()**, **disconnect(gui)**, **get_acquisition_modes()**; then call `**gui.api.register_camera_module(mod)`**. For beam supply: call `**gui.api.register_beam_supply(adapter)**`. Use `**gui.api.get_setting(key, default)**` for widget default values and `**gui.api.save_settings()**` in callbacks.
@@ -220,8 +220,8 @@ No edits to **gui.py** or **settings.DEFAULTS** are required; the registry picks
 
 - **Intended design (architecture, data flow, single responsibility):** [ARCHITECTURE.md](ARCHITECTURE.md)
 - **Full API implementation and docstrings:** `**app_api.py`**
-- **Module types and discovery:** [machine_modules/MODULES_OVERVIEW.md](machine_modules/MODULES_OVERVIEW.md)
-- **Camera contract (threading, modes; dark/flat in alteration modules):** [machine_modules/README_CAMERA_MODULES.md](machine_modules/README_CAMERA_MODULES.md)
+- **Module types and discovery:** [modules/MODULES_OVERVIEW.md](modules/MODULES_OVERVIEW.md)
+- **Detector contract (threading, modes; dark/flat in image processing modules):** [modules/README_DETECTOR_MODULES.md](modules/README_DETECTOR_MODULES.md)
 - **Main GUI (pipeline, acquisition, methods):** [README_GUI.md](README_GUI.md)
-- **Per-module:** `machine_modules/<name>/README.md` (e.g. **ct_capture**, **asi_camera**, **esp_hv_supply**).
+- **Per-module:** `modules/<name>/README.md` (e.g. **ct_capture**, **asi_camera**, **esp_hv_supply**).
 
