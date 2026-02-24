@@ -267,7 +267,8 @@ def request_n_frames_processed_up_to_slot(
         if (time.time() - t0) > timeout_seconds:
             gui._stop_acquisition()
             break
-    while gui.acq_mode != "idle" and (time.time() - t0) < timeout_seconds + 5:
+    # Wait for worker to reach idle (e.g. DC5 can be stuck in one long frame). Give extra time.
+    while gui.acq_mode != "idle" and (time.time() - t0) < timeout_seconds + 15:
         if gui.acq_stop.is_set():
             break
         time.sleep(0.05)

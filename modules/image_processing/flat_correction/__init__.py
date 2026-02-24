@@ -92,8 +92,8 @@ def capture_flat(gui) -> bool:
         return False
     n = api.get_flat_capture_stack_count()
     t_int = api.get_integration_time_seconds()
-    # Timeout: n * (integration + per-frame readout margin). Same formula as dark.
-    readout_margin_s = 5.0
+    # Timeout: n * (integration + per-frame readout margin). Generous margin for DC5/slow USB.
+    readout_margin_s = 8.0
     timeout_s = n * (t_int + readout_margin_s)
     if api.get_camera_uses_dual_shot_for_capture_n():
         timeout_s *= 2  # dual shot = 2 exposures per frame (e.g. C7942)

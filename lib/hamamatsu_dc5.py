@@ -6,7 +6,7 @@ Uses libusb1 (usb1). Exposure 30 ms–10 s (hardware may clamp above ~2 s), 14-b
 
 import struct
 import time
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 
@@ -170,19 +170,24 @@ def _trig_int(dev) -> None:
 
 
 def _capture_one_frame_sync(dev, width: int, height: int, depth: int = 2,
-                            timeout_ms: int = 2500) -> Optional[Tuple[bytes, int]]:
+                            timeout_ms: int = 2500,
+                            should_abort: Optional[Callable[[], bool]] = None) -> Optional[Tuple[bytes, int]]:
     """
     Capture one frame: wait for MSG_BEGIN, read image+footer (imgsz+2), then MSG_END.
     Returns (raw_image_bytes, average) or None on error/abort.
+    When should_abort is set, use shorter read timeouts and return None if it returns True (allows Stop during frame).
     """
     imgsz = width * height * depth
     imgx_sz = imgsz + 2
     t0 = time.time()
+    read_timeout_ms = 400 if should_abort else BULK_READ_TIMEOUT_MS
 
     # Wait for MSG_BEGIN (first 2 bytes of a read); remainder of same read is image data
     rawbuff = bytearray()
     while (time.time() - t0) * 1000 < timeout_ms:
-        chunk = dev.bulkRead(EP_BULK, 512, timeout=BULK_READ_TIMEOUT_MS)
+        if should_abort and should_abort():
+            return None
+        chunk = dev.bulkRead(EP_BULK, 512, timeout=read_timeout_ms)
         if len(chunk) < 2:
             continue
         sync = _is_sync(chunk)
@@ -196,7 +201,9 @@ def _capture_one_frame_sync(dev, width: int, height: int, depth: int = 2,
 
     # Accumulate until we have image + 2-byte footer; watch for sync at chunk start
     while len(rawbuff) < imgx_sz:
-        chunk = dev.bulkRead(EP_BULK, BULK_CHUNK, timeout=BULK_READ_TIMEOUT_MS)
+        if should_abort and should_abort():
+            return None
+        chunk = dev.bulkRead(EP_BULK, BULK_CHUNK, timeout=read_timeout_ms)
         if (time.time() - t0) * 1000 >= timeout_ms:
             raise TimeoutError("Timeout reading frame data")
         if len(chunk) < 2:
@@ -220,7 +227,9 @@ def _capture_one_frame_sync(dev, width: int, height: int, depth: int = 2,
     average = struct.unpack("<H", footer)[0]
 
     # Next read: MSG_END (6 bytes) or more data if END was split
-    end_chunk = dev.bulkRead(EP_BULK, 512, timeout=BULK_READ_TIMEOUT_MS)
+    if should_abort and should_abort():
+        return None
+    end_chunk = dev.bulkRead(EP_BULK, 512, timeout=read_timeout_ms)
     sync = _is_sync(end_chunk)
     if sync != MSG_END:
         return None
@@ -281,13 +290,15 @@ class HamamatsuDC5:
     def get_exp(self) -> int:
         return get_exp(self._dev)
 
-    def capture_one(self, timeout_ms: int = 2500) -> Optional[np.ndarray]:
-        """Trigger, read one frame, return float32 (H,W) or None on error."""
+    def capture_one(self, timeout_ms: int = 2500,
+                    should_abort: Optional[Callable[[], bool]] = None) -> Optional[np.ndarray]:
+        """Trigger, read one frame, return float32 (H,W) or None on error. If should_abort is set, it is checked during read (Stop responsive)."""
         set_roi_wh(self._dev, self.width, self.height)
         get_roi_wh(self._dev)
         force_trig(self._dev)
         res = _capture_one_frame_sync(
-            self._dev, self.width, self.height, self._depth, timeout_ms=timeout_ms
+            self._dev, self.width, self.height, self._depth,
+            timeout_ms=timeout_ms, should_abort=should_abort
         )
         if res is None:
             return None

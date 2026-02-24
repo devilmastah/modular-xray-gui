@@ -193,6 +193,7 @@ def build_ui(gui, parent_tag="control_panel"):
             dpg.configure_item("hv_kv_slider", enabled=connected)
             dpg.configure_item("hv_ma_slider", enabled=connected)
             dpg.configure_item("hv_fil_slider", enabled=connected)
+            # Safety: beam button (Turn On/Off Tube) always available when connected
             dpg.configure_item("hv_beam_btn", enabled=connected)
             dpg.configure_item("hv_estop_btn", enabled=connected)
         except Exception:

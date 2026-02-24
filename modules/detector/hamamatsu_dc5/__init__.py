@@ -146,11 +146,14 @@ class HamamatsuDC5Module:
         return max(30, min(10000, int(round(s * 1000))))
 
     def _trigger_and_read(self, gui):
-        """Block until one frame is ready. Returns float32 (H,W) or None if stopped."""
+        """Block until one frame is ready. Returns float32 (H,W) or None if stopped. Checks acq_stop during read."""
         api = gui.api
         self._cam.set_exp(self._integration_ms(gui))
         timeout_ms = self._integration_ms(gui) + 3000
-        frame = self._cam.capture_one(timeout_ms=timeout_ms)
+        frame = self._cam.capture_one(
+            timeout_ms=timeout_ms,
+            should_abort=lambda: api.acquisition_should_stop(),
+        )
         return frame
 
     def _do_single_shot(self, gui):

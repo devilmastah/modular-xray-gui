@@ -167,6 +167,9 @@ def build_ui(gui, parent_tag="control_panel"):
             color = [150, 150, 150]
         dpg.set_value("ard_psu_status", status)
         dpg.configure_item("ard_psu_status", color=color)
+        # Safety: Turn Off always available when connected
+        if dpg.does_item_exist("ard_psu_off_btn"):
+            dpg.configure_item("ard_psu_off_btn", enabled=core.is_connected())
 
     with dpg.collapsing_header(parent=parent_tag, label="Example Arduino powersupply", default_open=True):
         with dpg.group(indent=10):

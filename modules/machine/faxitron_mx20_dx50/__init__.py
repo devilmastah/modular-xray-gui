@@ -229,21 +229,27 @@ class FaxitronMX20DX50Core:
         return False
 
     def beam_off(self) -> bool:
-        """Turn off beam: send A, wait for S. Returns True when machine confirmed."""
-        with self._lock:
-            if self._ser is None or not self._ser.is_open:
-                return False
-            try:
-                self._send_no_lock("A", add_cr=False)
-            except Exception:
-                return False
-        deadline = time.monotonic() + BEAM_S_TIMEOUT_S
-        while time.monotonic() < deadline:
+        """Turn off beam: send A, wait for S. Returns True when machine confirmed. Never raises."""
+        try:
             with self._lock:
-                line = self._read_line_no_lock(timeout_s=0.5)
-            if line and "S" in line and "?S" not in line:
-                return True
-        return False
+                if self._ser is None or not self._ser.is_open:
+                    return False
+                try:
+                    self._send_no_lock("A", add_cr=False)
+                except Exception:
+                    return False
+            deadline = time.monotonic() + BEAM_S_TIMEOUT_S
+            while time.monotonic() < deadline:
+                with self._lock:
+                    line = self._read_line_no_lock(timeout_s=0.5)
+                if line and "S" in line and "?S" not in line:
+                    return True
+            return False
+        except Exception as e:
+            if __debug__:
+                import traceback
+                traceback.print_exc()
+            return False
 
 
 class BeamSupplyAdapter:
@@ -299,6 +305,8 @@ def build_ui(gui, parent_tag="control_panel"):
             dpg.configure_item("fax_mx20_status", color=[150, 150, 150])
             if dpg.does_item_exist("fax_mx20_on_btn"):
                 dpg.configure_item("fax_mx20_on_btn", enabled=False)
+            if dpg.does_item_exist("fax_mx20_off_btn"):
+                dpg.configure_item("fax_mx20_off_btn", enabled=False)
             return
         try:
             now = time.time()
@@ -313,11 +321,16 @@ def build_ui(gui, parent_tag="control_panel"):
             # HV On only when Ready; door open or warming up => cannot turn on
             if dpg.does_item_exist("fax_mx20_on_btn"):
                 dpg.configure_item("fax_mx20_on_btn", enabled=(state == "Ready"))
+            # Safety: HV Off always available when connected (even during exposure or wait)
+            if dpg.does_item_exist("fax_mx20_off_btn"):
+                dpg.configure_item("fax_mx20_off_btn", enabled=True)
         except Exception as e:
             dpg.set_value("fax_mx20_status", f"Error: {e}")
             dpg.configure_item("fax_mx20_status", color=[200, 80, 80])
             if dpg.does_item_exist("fax_mx20_on_btn"):
                 dpg.configure_item("fax_mx20_on_btn", enabled=False)
+            if dpg.does_item_exist("fax_mx20_off_btn"):
+                dpg.configure_item("fax_mx20_off_btn", enabled=True)  # keep HV Off available on error
 
     with dpg.collapsing_header(parent=parent_tag, label="Faxitron MX-20 / DX-50", default_open=True):
         with dpg.group(indent=10):
