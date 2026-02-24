@@ -78,6 +78,7 @@ def push_frame(gui, frame):
             gui._pending_preview_frame = np.mean(
                 gui._capture_frames_collect, axis=0
             ).astype(np.float32).copy()
+        time.sleep(0)  # yield GIL so main thread can process HV Off / UI
         return
 
     frame_before_distortion = None
@@ -120,6 +121,7 @@ def push_frame(gui, frame):
         gui._fps_time = now
 
     gui.new_frame_ready.set()
+    time.sleep(0)  # yield GIL after frame in pipeline so main thread can process HV Off / UI
 
 
 def get_module_incoming_image(gui, module_name: str):

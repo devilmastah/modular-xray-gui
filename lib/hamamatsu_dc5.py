@@ -232,10 +232,14 @@ def _capture_one_frame_sync(dev, width: int, height: int, depth: int = 2,
     footer = rawbuff[imgsz:imgx_sz]
     average = struct.unpack("<H", footer)[0]
 
-    # Next read: MSG_END (6 bytes) or more data if END was split
+    # Next read: MSG_END (6 bytes). Should arrive immediately after image; use short timeout
+    # so we don't block 5 s here (would block HV Off / UI). Frame is already complete in rawimg.
     if should_abort and should_abort():
         return None
-    end_chunk = dev.bulkRead(EP_BULK, 512, timeout=read_timeout_ms)
+    end_timeout_ms = 1500  # END follows image immediately; avoid long block for UI
+    end_chunk = dev.bulkRead(EP_BULK, 512, timeout=end_timeout_ms)
+    if should_abort:
+        time.sleep(0)  # yield GIL after frame complete so main thread can process HV Off
     sync = _is_sync(end_chunk)
     if sync != MSG_END:
         return None
