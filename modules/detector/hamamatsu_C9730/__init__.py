@@ -1,7 +1,6 @@
 """
-Hamamatsu C9732 (DC12) camera module. Uses lib/hamamatsu_dc5 driver.
-USB connection; integration time 30 ms–10 s, 14-bit sensor. 2368×2340 resolution.
-Folder name hamamatsu_dc5 kept so existing darks/flats (darks/hamamatsu_dc5/, etc.) stay valid.
+Hamamatsu C9730DK-11 (DC5) camera module. 1032×1032 resolution.
+USB connection via lib/hamamatsu_dc5; integration time 30 ms–10 s, 14-bit sensor.
 """
 
 from typing import Optional
@@ -11,17 +10,19 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 MODULE_INFO = {
-    "display_name": "Hamamatsu C9732",
-    "description": "C9732DK/C9732DT USB, 2368×2340. 30 ms–10 s exposure (try >2 s to test). Applies on next startup.",
+    "display_name": "Hamamatsu C9730",
+    "description": "C9730DK-11 USB, 1032×1032. 30 ms–10 s exposure (try >2 s to test). Applies on next startup.",
     "type": "detector",
     "default_enabled": False,
     "camera_priority": 5,
     "sensor_bit_depth": 14,
 }
 
-# C9732 resolution (DC12)
-_DEFAULT_FRAME_W = 2368
-_DEFAULT_FRAME_H = 2340
+# C9730 resolution
+_DEFAULT_FRAME_W = 1032
+_DEFAULT_FRAME_H = 1032
+
+_CONN_STATUS_TAG = "ham_c9730_conn_status"
 
 _driver_error: Optional[str] = None
 try:
@@ -38,7 +39,7 @@ def get_setting_keys():
 
 
 def get_frame_size():
-    """Return (width, height). Before connect we return C9732 default."""
+    """Return (width, height). Before connect we return C9730 default."""
     return (_DEFAULT_FRAME_W, _DEFAULT_FRAME_H)
 
 
@@ -50,7 +51,7 @@ def get_acquisition_modes():
     ]
 
 
-class HamamatsuDC5Module:
+class HamamatsuC9730Module:
     def __init__(self):
         self._cam: Optional[HamamatsuDC5] = None
         self._ctx = None
@@ -77,10 +78,10 @@ class HamamatsuDC5Module:
         return self._cam is not None
 
     def build_ui(self, gui, parent_tag="control_panel"):
-        with dpg.collapsing_header(parent=parent_tag, label="Connection (C9732)", default_open=True):
+        with dpg.collapsing_header(parent=parent_tag, label="Connection (C9730DK-11)", default_open=True):
             with dpg.group(indent=10):
                 dpg.add_button(label="Connect", callback=self._connect_cb(gui), width=-1)
-                dpg.add_text("Disconnected", tag="ham_dc5_conn_status")
+                dpg.add_text("Disconnected", tag=_CONN_STATUS_TAG)
 
     def _connect_cb(self, gui):
         api = gui.api
@@ -94,9 +95,9 @@ class HamamatsuDC5Module:
                 except Exception as e:
                     _driver_error = f"{type(e).__name__}: {e}"
             if HamamatsuDC5 is None:
-                api.set_status_message(f"C9732 driver not available — {_driver_error}")
-                if dpg.does_item_exist("ham_dc5_conn_status"):
-                    dpg.set_value("ham_dc5_conn_status", "Driver not available")
+                api.set_status_message(f"C9730 driver not available — {_driver_error}")
+                if dpg.does_item_exist(_CONN_STATUS_TAG):
+                    dpg.set_value(_CONN_STATUS_TAG, "Driver not available")
                 return
             try:
                 dev, ctx = open_device()
@@ -105,17 +106,17 @@ class HamamatsuDC5Module:
                 exp_s = api.get_integration_time_seconds()
                 exp_ms = max(30, min(10000, int(round(exp_s * 1000))))
                 self._cam = HamamatsuDC5(dev, ctx, exp_ms=exp_ms, init=True)
-                api.set_status_message("Connected (C9732)")
-                if dpg.does_item_exist("ham_dc5_conn_status"):
-                    dpg.set_value("ham_dc5_conn_status", "Connected")
+                api.set_status_message("Connected (C9730DK-11)")
+                if dpg.does_item_exist(_CONN_STATUS_TAG):
+                    dpg.set_value(_CONN_STATUS_TAG, "Connected")
             except Exception as e:
                 self._cam = None
                 self._dev = None
                 self._ctx = None
                 err = str(e).strip()
                 api.set_status_message(f"Connection failed: {err}")
-                if dpg.does_item_exist("ham_dc5_conn_status"):
-                    dpg.set_value("ham_dc5_conn_status", f"Failed: {err}")
+                if dpg.does_item_exist(_CONN_STATUS_TAG):
+                    dpg.set_value(_CONN_STATUS_TAG, f"Failed: {err}")
         return _cb
 
     def disconnect(self, gui):
@@ -127,8 +128,8 @@ class HamamatsuDC5Module:
         self._cam = None
         self._dev = None
         self._ctx = None
-        if dpg.does_item_exist("ham_dc5_conn_status"):
-            dpg.set_value("ham_dc5_conn_status", "Disconnected")
+        if dpg.does_item_exist(_CONN_STATUS_TAG):
+            dpg.set_value(_CONN_STATUS_TAG, "Disconnected")
 
     def start_acquisition(self, gui):
         api = gui.api
@@ -171,7 +172,6 @@ class HamamatsuDC5Module:
         mode = api.get_acquisition_mode()
         try:
             if mode in ("single", "dual"):
-                # DC5 uses single shot only; "dual" can appear from app default/saved state
                 self._do_single_shot(gui)
             elif mode == "continuous":
                 i = 0
@@ -179,7 +179,7 @@ class HamamatsuDC5Module:
                     i += 1
                     api.set_progress(0.0, f"Continuous #{i}")
                     self._do_single_shot(gui)
-                    time.sleep(0.15)  # small delay between readout and next capture
+                    time.sleep(0.15)
             elif mode == "capture_n":
                 n = api.get_integration_frame_count()
                 for i in range(n):
@@ -188,7 +188,7 @@ class HamamatsuDC5Module:
                     api.set_progress(i / max(n, 1), f"Capturing {i+1}/{n}")
                     self._do_single_shot(gui)
                     if i < n - 1:
-                        time.sleep(0.15)  # small delay between readout and next capture
+                        time.sleep(0.15)
                 api.set_progress(1.0)
         except Exception as e:
             api.set_status_message(f"Error: {e}")
@@ -197,6 +197,6 @@ class HamamatsuDC5Module:
 
 
 def build_ui(gui, parent_tag="control_panel"):
-    mod = HamamatsuDC5Module()
+    mod = HamamatsuC9730Module()
     mod.build_ui(gui, parent_tag)
     gui.api.register_camera_module(mod)
