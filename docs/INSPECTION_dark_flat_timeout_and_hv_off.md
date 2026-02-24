@@ -1,6 +1,6 @@
 # Inspection: Dark/Flat timeouts (DC5) and HV Off crash
 
-**Fixes applied (see end of doc):** Faxitron `beam_off()` hardened; dark/flat timeout margin and wait-for-idle increased; DC5 driver supports abort-during-frame.
+**Status: resolved.** Dark/flat capture with the DC5 and HV Off responsiveness (including after frame arrives) have been addressed. Fixes are listed at the end of this doc.
 
 ---
 
@@ -110,4 +110,6 @@ So after a stressful sequence (long dark/flat, timeout, possible USB/DC5 issues)
 3. **Wait for idle** (`ui/pipeline.py`): After a timeout, the main thread now waits up to **15 s** (was 5 s) for `acq_mode == "idle"` so the DC5 worker is more likely to exit before we return.
 4. **DC5 abort during frame** (`lib/hamamatsu_dc5.py` + `modules/detector/hamamatsu_dc5/__init__.py`): Added optional `should_abort` to `_capture_one_frame_sync` and `capture_one`. When set, bulk reads use a 5 s per-read timeout and we check `should_abort()` each loop; DC5 module passes `api.acquisition_should_stop`. Added 0.15 s delay between readout and next capture for capture_n and continuous.
 
-**HV Off and USB timeout:** Dark/flat capture **already runs in a background thread** (`gui._cb_capture_dark` / `_cb_capture_flat` start a `threading.Thread` and return immediately), so the main thread is not blocked by `request_n_frames_processed_up_to_slot`. In principle the main thread should stay responsive and HV Off (Faxitron DX50) should be clickable. If HV Off could not be triggered when LIBUSB_ERROR_TIMEOUT [-7] occurred, possible causes: (1) **GIL** – the acquisition worker may be in a C extension (libusb) that holds the GIL for the duration of the read (e.g. 5 s), so the main thread does not run. The DC5 driver now yields the GIL with `time.sleep(0)` after each bulk read when `should_abort` is set, so the main thread can run between reads. (2) **USB driver / process-wide block** – some USB stacks can block the whole process on error. HV Off is always enabled in the UI; ensuring the main thread never blocks (and yielding the GIL in the driver) is the intended mitigation.
+5. **HV Off / UI responsive after frame** (`lib/hamamatsu_dc5.py`, `ui/pipeline.py`): (a) MSG_END read after image data now uses a **1.5 s** timeout (not 5 s) so we don’t block long after the frame is in. (b) `time.sleep(0)` added after each bulk read in the DC5 driver (when `should_abort` set) and after the MSG_END read to yield the GIL so the main thread can process HV Off. (c) `time.sleep(0)` at the end of `push_frame` and after the dark/flat capture append so the main thread gets a time slice once the frame is in the pipeline. Together these address sluggish UI and HV Off not triggering right after a capture.
+
+**HV Off and USB timeout:** Dark/flat capture **already runs in a background thread** (`gui._cb_capture_dark` / `_cb_capture_flat` start a `threading.Thread` and return immediately), so the main thread is not blocked by `request_n_frames_processed_up_to_slot`. The GIL yields above ensure the main thread can run between reads and after each frame so HV Off (Faxitron DX50) stays responsive during and after capture.

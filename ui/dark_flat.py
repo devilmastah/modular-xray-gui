@@ -5,6 +5,7 @@ Used by gui.py; gui keeps _get_camera_gain and delegates to these functions.
 
 import numpy as np
 import shutil
+import pathlib
 import dearpygui.dearpygui as dpg
 
 from ui.constants import (
@@ -18,6 +19,70 @@ from ui.constants import (
     find_nearest_dark,
     find_nearest_flat,
 )
+
+
+def _load_array_from_path(path: str) -> np.ndarray:
+    """Load a 2D float32 array from .npy or .tif. Squeezes to 2D. Raises on error."""
+    path = pathlib.Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Not a file: {path}")
+    suf = path.suffix.lower()
+    if suf == ".npy":
+        arr = np.load(path)
+    elif suf in (".tif", ".tiff"):
+        try:
+            import tifffile
+            arr = tifffile.imread(path)
+        except Exception as e:
+            raise RuntimeError(f"TIFF read failed: {e}") from e
+    else:
+        raise ValueError(f"Unsupported extension: {suf} (use .npy or .tif)")
+    arr = np.squeeze(arr)
+    if arr.ndim != 2:
+        raise ValueError(f"Expected 2D array, got shape {arr.shape}")
+    return arr.astype(np.float32)
+
+
+def load_dark_field_from_path(gui, path: str) -> bool:
+    """Load dark field from a file path (.npy or .tif). Shape must match frame size. Returns True on success."""
+    w, h = getattr(gui, "frame_width", 0), getattr(gui, "frame_height", 0)
+    try:
+        loaded = _load_array_from_path(path)
+    except Exception as e:
+        gui._status_msg = f"Dark load failed: {e}"
+        return False
+    if w > 0 and h > 0 and (loaded.shape[0] != h or loaded.shape[1] != w):
+        gui._status_msg = f"Dark shape {loaded.shape[1]}×{loaded.shape[0]} does not match frame {w}×{h}"
+        return False
+    gui.dark_field = loaded
+    gui._dark_loaded_time_gain = None  # manual load
+    gui._dark_nearest_time_gain = None
+    gui._status_msg = f"Dark loaded from {pathlib.Path(path).name}"
+    if dpg.does_item_exist("dark_status"):
+        dpg.set_value("dark_status", dark_status_text(gui))
+    gui._update_alteration_dark_flat_status()
+    return True
+
+
+def load_flat_field_from_path(gui, path: str) -> bool:
+    """Load flat field from a file path (.npy or .tif). Shape must match frame size. Returns True on success."""
+    w, h = getattr(gui, "frame_width", 0), getattr(gui, "frame_height", 0)
+    try:
+        loaded = _load_array_from_path(path)
+    except Exception as e:
+        gui._status_msg = f"Flat load failed: {e}"
+        return False
+    if w > 0 and h > 0 and (loaded.shape[0] != h or loaded.shape[1] != w):
+        gui._status_msg = f"Flat shape {loaded.shape[1]}×{loaded.shape[0]} does not match frame {w}×{h}"
+        return False
+    gui.flat_field = loaded
+    gui._flat_loaded_time_gain = None  # manual load
+    gui._flat_nearest_time_gain = None
+    gui._status_msg = f"Flat loaded from {pathlib.Path(path).name}"
+    if dpg.does_item_exist("flat_status"):
+        dpg.set_value("flat_status", flat_status_text(gui))
+    gui._update_alteration_dark_flat_status()
+    return True
 
 
 def load_dark_field(gui):
@@ -124,10 +189,12 @@ def on_dark_flat_params_changed(gui):
 
 
 def dark_status_text(gui):
-    """Short status for dark: Loaded (Xs @ Y), None (nearest too far), or None."""
-    if gui.dark_field is not None and gui._dark_loaded_time_gain:
-        t, g = gui._dark_loaded_time_gain
-        return f"Dark ({t}s @ {g}): Loaded"
+    """Short status for dark: Loaded (Xs @ Y), Loaded (manual), None (nearest too far), or None."""
+    if gui.dark_field is not None:
+        if gui._dark_loaded_time_gain:
+            t, g = gui._dark_loaded_time_gain
+            return f"Dark ({t}s @ {g}): Loaded"
+        return "Dark: Loaded (manual)"
     if gui._dark_nearest_time_gain:
         t, g = gui._dark_nearest_time_gain
         return f"Dark: None (nearest {t}s @ {g} too far)"
@@ -135,10 +202,12 @@ def dark_status_text(gui):
 
 
 def flat_status_text(gui):
-    """Short status for flat."""
-    if gui.flat_field is not None and gui._flat_loaded_time_gain:
-        t, g = gui._flat_loaded_time_gain
-        return f"Flat ({t}s @ {g}): Loaded"
+    """Short status for flat: Loaded (Xs @ Y), Loaded (manual), None (nearest too far), or None."""
+    if gui.flat_field is not None:
+        if gui._flat_loaded_time_gain:
+            t, g = gui._flat_loaded_time_gain
+            return f"Flat ({t}s @ {g}): Loaded"
+        return "Flat: Loaded (manual)"
     if gui._flat_nearest_time_gain:
         t, g = gui._flat_nearest_time_gain
         return f"Flat: None (nearest {t}s @ {g} too far)"

@@ -71,13 +71,16 @@ def push_frame(gui, frame):
                 )
                 raise
             log_pipeline_step(gui, "capture", frame_token, slot, module_name, frame_in, frame)
+            time.sleep(0)  # yield GIL between pipeline steps for UI responsiveness
         with gui.frame_lock:
             gui._capture_frames_collect.append(frame.copy())
             if len(gui._capture_frames_collect) >= getattr(gui, "_capture_n", 0):
                 gui._capture_frames_ready.set()
-            gui._pending_preview_frame = np.mean(
-                gui._capture_frames_collect, axis=0
-            ).astype(np.float32).copy()
+            collect_copy = list(gui._capture_frames_collect)
+        # compute mean outside lock so we don't block main thread on np.mean
+        pending = np.mean(collect_copy, axis=0).astype(np.float32).copy()
+        with gui.frame_lock:
+            gui._pending_preview_frame = pending
         time.sleep(0)  # yield GIL so main thread can process HV Off / UI
         return
 
@@ -101,6 +104,7 @@ def push_frame(gui, frame):
             )
             raise
         log_pipeline_step(gui, "live", frame_token, slot, module_name, frame_in, frame)
+        time.sleep(0)  # yield GIL between pipeline steps for UI responsiveness
 
     with gui.frame_lock:
         if frame_before_distortion is not None:
@@ -109,7 +113,11 @@ def push_frame(gui, frame):
         gui.frame_buffer.append(frame)
         if len(gui.frame_buffer) > gui.integration_n:
             gui.frame_buffer = gui.frame_buffer[-gui.integration_n:]
-        gui._update_integrated_display()
+        buffer_copy = list(gui.frame_buffer)
+    # compute integrated display outside lock so we don't block main thread on np.mean
+    integrated = np.mean(buffer_copy, axis=0)
+    with gui.frame_lock:
+        gui.display_frame = integrated
 
     gui.frame_count += 1
     now = time.time()

@@ -19,8 +19,8 @@ MODULE_INFO = {
 }
 
 # Default frame size when driver not loaded (DC5 resolution)
-_DEFAULT_FRAME_W = 1032
-_DEFAULT_FRAME_H = 1032
+_DEFAULT_FRAME_W = 2368
+_DEFAULT_FRAME_H = 2340
 
 _driver_error: Optional[str] = None
 try:

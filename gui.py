@@ -56,6 +56,9 @@ from ui import display as ui_display
 from ui import file_ops as ui_file_ops
 from ui import build_ui as ui_build_ui
 
+# Max rate for painting live view to texture (skip frames above this; no buffering)
+DISPLAY_PAINT_MAX_FPS = 30
+
 
 class XrayGUI:
     def __init__(self):
@@ -85,6 +88,7 @@ class XrayGUI:
         self.frame_buffer = []          # list of float32 processed frames for integration (each frame ran full pipeline)
         self.integration_n = 1          # integration size: we keep last N processed frames and display their mean
         self.new_frame_ready = threading.Event()
+        self._last_display_paint_time = 0.0   # throttle live view updates to DISPLAY_PAINT_MAX_FPS (skip frames, no buffer)
 
         # Dark and flat fields (loaded after _apply_loaded_settings so integration_time is restored first)
         self.dark_field = None
@@ -726,7 +730,7 @@ class XrayGUI:
         self._start_acquisition("capture_n")
 
     def _cb_capture_dark(self, sender=None, app_data=None):
-        """Dark capture is owned by the dark_correction module (pipeline order)."""
+        """Dark capture is owned by the dark_correction module (pipeline order). Runs in a thread so main thread stays responsive (HV Off, UI). See docs/INSPECTION_dark_flat_timeout_and_hv_off.md."""
         self.integration_time = self._parse_integration_time(dpg.get_value("integ_time_combo"))
         self._dark_stack_n = max(1, min(50, int(dpg.get_value("dark_stack_slider"))))
         if not self._module_enabled.get("dark_correction", False):
@@ -759,7 +763,7 @@ class XrayGUI:
         self._update_alteration_dark_flat_status()
 
     def _cb_capture_flat(self, sender=None, app_data=None):
-        """Flat capture is owned by the flat_correction module (pipeline order)."""
+        """Flat capture is owned by the flat_correction module (pipeline order). Runs in a thread so main thread stays responsive (HV Off, UI). See docs/INSPECTION_dark_flat_timeout_and_hv_off.md."""
         self.integration_time = self._parse_integration_time(dpg.get_value("integ_time_combo"))
         self._flat_stack_n = max(1, min(50, int(dpg.get_value("flat_stack_slider"))))
         if not self._module_enabled.get("flat_correction", False):
@@ -1157,7 +1161,10 @@ class XrayGUI:
 
         if self.new_frame_ready.is_set():
             self.new_frame_ready.clear()
-            self._update_display()
+            now = time.time()
+            if now - self._last_display_paint_time >= (1.0 / DISPLAY_PAINT_MAX_FPS):
+                self._update_display()
+                self._last_display_paint_time = now
 
         if self._window_refresh_pending:
             self._window_refresh_pending = False
